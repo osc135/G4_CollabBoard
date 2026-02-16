@@ -46,7 +46,7 @@ export default function App() {
         <span data-testid="connection-status" style={{ color: connected ? "green" : "red" }}>
           {connected ? "Connected" : "Disconnected"}
         </span>
-        {(["pan", "sticky", "rectangle"] as const).map((t) => (
+        {(["pan", "sticky"] as const).map((t) => (
           <button
             key={t}
             data-testid={`tool-${t}`}

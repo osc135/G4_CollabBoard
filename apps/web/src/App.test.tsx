@@ -36,11 +36,10 @@ describe("App", () => {
     expect(screen.getByTestId("connection-status")).toHaveTextContent("Connected");
   });
 
-  it("renders tool buttons Pan, Sticky, Rectangle", () => {
+  it("renders tool buttons Pan and Sticky", () => {
     render(<App />);
     expect(screen.getByTestId("tool-pan")).toHaveTextContent("Pan");
     expect(screen.getByTestId("tool-sticky")).toHaveTextContent("Sticky");
-    expect(screen.getByTestId("tool-rectangle")).toHaveTextContent("Rectangle");
   });
 
   it("shows Online count and presence names", () => {

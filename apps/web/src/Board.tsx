@@ -1,9 +1,10 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Stage, Layer, Rect, Circle, Line, Text, Group } from "react-konva";
 import Konva from "konva";
 import type { BoardObject, Cursor } from "@collabboard/shared";
 
-export type Tool = "pan" | "sticky" | "rectangle";
+export type Tool = "pan" | "sticky";
 
 interface BoardProps {
   objects: BoardObject[];
@@ -22,6 +23,11 @@ function getCursorColor(index: number) {
   return CURSOR_COLORS[index % CURSOR_COLORS.length];
 }
 
+const STICKY_COLORS = ["#fef08a", "#fecaca", "#bbf7d0", "#bfdbfe", "#e9d5ff", "#fed7aa", "#fde68a", "#ddd6fe"];
+function getRandomStickyColor() {
+  return STICKY_COLORS[Math.floor(Math.random() * STICKY_COLORS.length)];
+}
+
 export function Board({
   objects,
   cursors,
@@ -35,6 +41,20 @@ export function Board({
 }: BoardProps) {
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [editingStickyId, setEditingStickyId] = useState<string | null>(null);
+  const [editingStickyText, setEditingStickyText] = useState("");
+  const stickyInputRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleStageDragEnd = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
+    setPosition({ x: e.target.x(), y: e.target.y() });
+  }, []);
+
+  useEffect(() => {
+    if (editingStickyId) {
+      const t = setTimeout(() => stickyInputRef.current?.focus(), 50);
+      return () => clearTimeout(t);
+    }
+  }, [editingStickyId]);
 
   const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
@@ -79,24 +99,81 @@ export function Board({
           width: 150,
           height: 100,
           text: "New note",
-          color: "#fef08a",
-        });
-      } else if (tool === "rectangle") {
-        onObjectCreate({
-          id: `rect-${Date.now()}`,
-          type: "rectangle",
-          x: pos.x,
-          y: pos.y,
-          width: 120,
-          height: 80,
-          color: "#93c5fd",
+          color: getRandomStickyColor(),
         });
       }
     },
     [tool, onSelect, onObjectCreate]
   );
 
+  const stickyObj = editingStickyId ? objects.find((o): o is Extract<BoardObject, { type: "sticky" }> => o.type === "sticky" && o.id === editingStickyId) : null;
+  const stage = stageRef.current;
+  const containerRect = (stage && "getContainer" in stage ? (stage as { getContainer: () => HTMLElement }).getContainer() : null)?.getBoundingClientRect();
+  const stickyEditRect =
+    stickyObj && containerRect
+      ? {
+          left: containerRect.left + (stickyObj.x + 8) * scale + position.x,
+          top: containerRect.top + (stickyObj.y + 8) * scale + position.y,
+          width: Math.max(80, (stickyObj.width - 16) * scale),
+          height: Math.max(40, (stickyObj.height - 16) * scale),
+        }
+      : null;
+
+  const handleStickyBlur = useCallback(() => {
+    if (!editingStickyId) return;
+    const obj = objects.find((o): o is Extract<BoardObject, { type: "sticky" }> => o.type === "sticky" && o.id === editingStickyId);
+    if (obj) onObjectUpdate({ ...obj, text: editingStickyText });
+    setEditingStickyId(null);
+  }, [editingStickyId, editingStickyText, objects, onObjectUpdate]);
+
+  const stickyEditor =
+    editingStickyId && stickyObj && stickyEditRect
+      ? createPortal(
+          <textarea
+            ref={stickyInputRef}
+            value={editingStickyText}
+            onChange={(e) => setEditingStickyText(e.target.value)}
+            onBlur={handleStickyBlur}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setEditingStickyText(stickyObj.text === "New note" ? "" : stickyObj.text);
+                setEditingStickyId(null);
+                stickyInputRef.current?.blur();
+              }
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                stickyInputRef.current?.blur();
+              }
+            }}
+            style={{
+              position: "fixed",
+              left: stickyEditRect.left,
+              top: stickyEditRect.top,
+              width: stickyEditRect.width,
+              height: stickyEditRect.height,
+              padding: 6,
+              fontSize: 14,
+              lineHeight: 1.4,
+              fontFamily: "system-ui, sans-serif",
+              background: stickyObj.color,
+              color: "#1a1a1a",
+              border: "none",
+              borderRadius: 4,
+              resize: "none",
+              outline: "none",
+              boxSizing: "border-box",
+              zIndex: 1000,
+              boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+            }}
+            placeholder="Type your note…"
+            spellCheck={false}
+          />,
+          document.body
+        )
+      : null;
+
   return (
+    <>
     <Stage
       ref={stageRef as React.RefObject<Konva.Stage>}
       width={window.innerWidth}
@@ -105,12 +182,12 @@ export function Board({
       scaleY={scale}
       x={position.x}
       y={position.y}
-      draggable
+      draggable={tool === "pan"}
       onWheel={handleWheel}
       onPointerMove={handlePointerMove}
       onClick={handleStageClick}
       onDragStart={() => {}}
-      onDragEnd={() => {}}
+      onDragEnd={handleStageDragEnd}
     >
       <Layer>
         {objects.map((obj) => {
@@ -122,10 +199,20 @@ export function Board({
                 y={obj.y}
                 draggable
                 onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x(), y: e.target.y() })}
-                onClick={(e) => e.cancelBubble && onSelect(obj.id)}
+                onClick={(e) => {
+                  e.cancelBubble = true;
+                  onSelect(obj.id);
+                }}
+                onDblClick={(e) => {
+                  e.cancelBubble = true;
+                  setEditingStickyId(obj.id);
+                  setEditingStickyText(obj.text === "New note" ? "" : obj.text);
+                }}
               >
                 <Rect width={obj.width} height={obj.height} fill={obj.color} cornerRadius={4} stroke={selectedId === obj.id ? "#333" : undefined} strokeWidth={selectedId === obj.id ? 2 : 0} />
-                <Text text={obj.text} width={obj.width - 16} height={obj.height - 16} x={8} y={8} fontSize={14} wrap="word" listening={false} />
+                {editingStickyId !== obj.id && (
+                  <Text text={obj.text} width={obj.width - 16} height={obj.height - 16} x={8} y={8} fontSize={14} wrap="word" listening={false} />
+                )}
               </Group>
             );
           }
@@ -140,7 +227,10 @@ export function Board({
                 fill={obj.color}
                 draggable
                 onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x(), y: e.target.y() })}
-                onClick={(e) => e.cancelBubble && onSelect(obj.id)}
+                onClick={(e) => {
+                  e.cancelBubble = true;
+                  onSelect(obj.id);
+                }}
                 stroke={selectedId === obj.id ? "#333" : undefined}
                 strokeWidth={selectedId === obj.id ? 2 : 0}
               />
@@ -156,7 +246,10 @@ export function Board({
                 fill={obj.color}
                 draggable
                 onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x() - obj.width / 2, y: e.target.y() - obj.height / 2 })}
-                onClick={(e) => e.cancelBubble && onSelect(obj.id)}
+                onClick={(e) => {
+                  e.cancelBubble = true;
+                  onSelect(obj.id);
+                }}
               />
             );
           }
@@ -164,12 +257,17 @@ export function Board({
             return (
               <Line
                 key={obj.id}
-                points={[obj.x, obj.y, obj.x + obj.width, obj.y + obj.height]}
+                x={obj.x}
+                y={obj.y}
+                points={[0, 0, obj.width, obj.height]}
                 stroke={obj.color}
                 strokeWidth={2}
                 draggable
-                onDragEnd={(e) => onObjectUpdate({ ...obj, x: obj.x + e.target.x(), y: obj.y + e.target.y() })}
-                onClick={(e) => e.cancelBubble && onSelect(obj.id)}
+                onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x(), y: e.target.y() })}
+                onClick={(e) => {
+                  e.cancelBubble = true;
+                  onSelect(obj.id);
+                }}
               />
             );
           }
@@ -185,5 +283,7 @@ export function Board({
         ))}
       </Layer>
     </Stage>
+    {stickyEditor}
+    </>
   );
 }
