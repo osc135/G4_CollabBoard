@@ -1,0 +1,16 @@
+---
+description: Tests live in the same package/app as the code they test
+alwaysApply: true
+---
+
+# Test placement
+
+Each part of the monorepo has its own tests. Do not put tests for one section in another.
+
+| Section | Tests for |
+|---------|-----------|
+| **packages/shared** | Shared code: Zod schemas, validation, state mutation helpers, shared types/utils |
+| **apps/server** | Server-only code: Socket.io handlers, REST routes, server orchestration |
+| **apps/web** | Frontend: components, hooks, client logic |
+
+Place test files next to the code they test (e.g. `*.test.ts` / `*.test.tsx` alongside source) or in a dedicated `test/` directory within that same package or app. Do not create a single top-level test folder that spans packages or apps.

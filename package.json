@@ -1,0 +1,5 @@
+{
+  "name": "collabboard",
+  "private": true,
+  "workspaces": ["packages/*", "apps/*"]
+}
