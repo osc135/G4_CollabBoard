@@ -3,6 +3,15 @@ import { render, screen } from "@testing-library/react";
 import App from "./App";
 
 vi.mock("./Board", () => ({ Board: () => null }));
+vi.mock("./contexts/AuthContext", () => ({
+  useAuth: () => ({
+    session: {},
+    loading: false,
+    displayName: "Test User",
+    userId: "u1",
+    signOut: vi.fn(),
+  }),
+}));
 vi.mock("./useSocket", () => ({
   useSocket: () => ({
     connected: true,
@@ -21,9 +30,9 @@ describe("App", () => {
     localStorage.clear();
   });
 
-  it("renders toolbar with name input and connection status", () => {
+  it("renders toolbar with display name and connection status", () => {
     render(<App />);
-    expect(screen.getByRole("textbox", { name: /your name/i })).toBeInTheDocument();
+    expect(screen.getByText("Test User")).toBeInTheDocument();
     expect(screen.getByTestId("connection-status")).toHaveTextContent("Connected");
   });
 
@@ -37,7 +46,7 @@ describe("App", () => {
   it("shows Online count and presence names", () => {
     render(<App />);
     expect(screen.getByText(/Online:/)).toBeInTheDocument();
-    expect(screen.getByText(/Test User/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Test User/).length).toBeGreaterThanOrEqual(1);
   });
 
   it("does not show Delete button when nothing selected", () => {

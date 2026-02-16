@@ -37,9 +37,9 @@ describe("useSocket", () => {
 
   it("connects with auth containing name", async () => {
     const { io } = await import("socket.io-client");
-    renderHook(() => useSocket("Alice"));
+    renderHook(() => useSocket("user-alice", "Alice"));
     await act(async () => {});
-    expect(io).toHaveBeenCalledWith("", expect.objectContaining({ auth: expect.objectContaining({ name: "Alice" }) }));
+    expect(io).toHaveBeenCalledWith("", expect.objectContaining({ auth: expect.objectContaining({ name: "Alice", userId: "user-alice" }) }));
   });
 
   it("reports connected after connect event", async () => {
@@ -49,14 +49,14 @@ describe("useSocket", () => {
       mockSocket = s;
       return s;
     });
-    const { result } = renderHook(() => useSocket("Bob"));
+    const { result } = renderHook(() => useSocket("user-bob", "Bob"));
     expect(result.current.connected).toBe(false);
     await act(async () => mockSocket.trigger("connect"));
     expect(result.current.connected).toBe(true);
   });
 
   it("updates objects when board:state is received", async () => {
-    const { result } = renderHook(() => useSocket("User"));
+    const { result } = renderHook(() => useSocket("user-1", "User"));
     await act(async () => mockSocket.trigger("connect"));
     const payload = { objects: [{ id: "sticky-1", type: "sticky" as const, x: 0, y: 0, width: 100, height: 100, text: "Hi", color: "#fff" }] };
     await act(async () => mockSocket.trigger("board:state", payload));
@@ -64,14 +64,14 @@ describe("useSocket", () => {
   });
 
   it("updates cursors when cursor:moved is received", async () => {
-    const { result } = renderHook(() => useSocket("User"));
+    const { result } = renderHook(() => useSocket("user-1", "User"));
     await act(async () => mockSocket.trigger("connect"));
     await act(async () => mockSocket.trigger("cursor:moved", { socketId: "s1", userId: "u1", name: "Alice", x: 10, y: 20 }));
     expect(result.current.cursors["s1"]).toEqual({ id: "s1", userId: "u1", name: "Alice", x: 10, y: 20 });
   });
 
   it("removes cursor when cursor:left is received", async () => {
-    const { result } = renderHook(() => useSocket("User"));
+    const { result } = renderHook(() => useSocket("user-1", "User"));
     await act(async () => mockSocket.trigger("connect"));
     await act(async () => mockSocket.trigger("cursor:moved", { socketId: "s1", userId: "u1", name: "A", x: 0, y: 0 }));
     await act(async () => mockSocket.trigger("cursor:left", "s1"));
@@ -79,14 +79,14 @@ describe("useSocket", () => {
   });
 
   it("emitCursor emits cursor:move with x and y", async () => {
-    const { result } = renderHook(() => useSocket("User"));
+    const { result } = renderHook(() => useSocket("user-1", "User"));
     await act(async () => mockSocket.trigger("connect"));
     act(() => result.current.emitCursor(50, 100));
     expect(mockSocket.emit).toHaveBeenCalledWith("cursor:move", { x: 50, y: 100 });
   });
 
   it("createObject emits object:create with payload", async () => {
-    const { result } = renderHook(() => useSocket("User"));
+    const { result } = renderHook(() => useSocket("user-1", "User"));
     await act(async () => mockSocket.trigger("connect"));
     const obj = { id: "sticky-1", type: "sticky" as const, x: 0, y: 0, width: 150, height: 100, text: "Note", color: "#fef08a" };
     act(() => result.current.createObject(obj));
@@ -94,7 +94,7 @@ describe("useSocket", () => {
   });
 
   it("updateObject emits object:update with payload", async () => {
-    const { result } = renderHook(() => useSocket("User"));
+    const { result } = renderHook(() => useSocket("user-1", "User"));
     await act(async () => mockSocket.trigger("connect"));
     const obj = { id: "sticky-1", type: "sticky" as const, x: 10, y: 20, width: 150, height: 100, text: "Updated", color: "#fef08a" };
     act(() => result.current.updateObject(obj));
@@ -102,7 +102,7 @@ describe("useSocket", () => {
   });
 
   it("deleteObject emits object:delete with id", async () => {
-    const { result } = renderHook(() => useSocket("User"));
+    const { result } = renderHook(() => useSocket("user-1", "User"));
     await act(async () => mockSocket.trigger("connect"));
     act(() => result.current.deleteObject("sticky-1"));
     expect(mockSocket.emit).toHaveBeenCalledWith("object:delete", "sticky-1");
