@@ -9,7 +9,7 @@ import Konva from "konva";
 export function BoardRoom() {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
-  const { session, loading, displayName, userId, signOut } = useAuth();
+  const { session, loading, displayName, userId } = useAuth();
   const [tool, setTool] = useState<Tool>("pan");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedStickyColor, setSelectedStickyColor] = useState<string>(STICKY_COLORS[0]);

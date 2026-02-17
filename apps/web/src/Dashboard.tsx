@@ -58,7 +58,7 @@ export function Dashboard() {
     try {
       const roomId = `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('rooms')
         .insert([
           {
