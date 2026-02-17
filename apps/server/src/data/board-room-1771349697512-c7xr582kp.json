@@ -12,17 +12,6 @@
       "rotation": 0
     },
     {
-      "id": "sticky-1771357103105",
-      "type": "sticky",
-      "x": -239.1984223569376,
-      "y": -580.8483037860535,
-      "width": 150,
-      "height": 100,
-      "text": "testing",
-      "color": "#fef08a",
-      "rotation": 0
-    },
-    {
       "id": "sticky-1771357104670",
       "type": "sticky",
       "x": 892.3165564608762,
@@ -34,10 +23,10 @@
       "rotation": 0
     },
     {
-      "id": "sticky-1771357114661",
+      "id": "sticky-1771357502733",
       "type": "sticky",
-      "x": -251.65073257696514,
-      "y": -484.49448056817226,
+      "x": -1165.4192457288273,
+      "y": -943.6426263952192,
       "width": 150,
       "height": 100,
       "text": "New note",
@@ -45,14 +34,135 @@
       "rotation": 0
     },
     {
-      "id": "sticky-1771357123177",
+      "id": "sticky-1771357554551",
       "type": "sticky",
-      "x": -143.13929234978477,
-      "y": -594.4669005837449,
+      "x": 343.37679254025636,
+      "y": 1546.054043304104,
+      "width": 150.5499989865122,
+      "height": 247.29256024127716,
+      "text": "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttest",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771358070607",
+      "type": "sticky",
+      "x": 1301.347811863701,
+      "y": -266.612020465314,
+      "width": 76.04141616444896,
+      "height": 181.23260010100591,
+      "text": "testingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtesting",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771358086042",
+      "type": "sticky",
+      "x": 1623.4657859705771,
+      "y": -220.53737579925343,
+      "width": 369.56911640855384,
+      "height": 246.3794109390359,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771358103689",
+      "type": "sticky",
+      "x": 1917.00233811873,
+      "y": 279.00223779037265,
       "width": 150,
       "height": 100,
-      "text": "testingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtestingtesting",
+      "text": "New note",
       "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771358214387",
+      "type": "sticky",
+      "x": 2287.002772407852,
+      "y": -1049.0067949926515,
+      "width": 67.62851765813284,
+      "height": 269.6586674804888,
+      "text": "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttest",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771358218495",
+      "type": "sticky",
+      "x": 2542.003071715219,
+      "y": -1001.0064685065181,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771358229229",
+      "type": "sticky",
+      "x": 2393.0028968258157,
+      "y": -815.0052033727511,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771358299505",
+      "type": "sticky",
+      "x": 1177.0014695404868,
+      "y": 894.0064208939568,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771358305170",
+      "type": "sticky",
+      "x": -916.0771082440924,
+      "y": -290.6363168068042,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#bbf7d0",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771358305526",
+      "type": "sticky",
+      "x": -189.23507363274666,
+      "y": -1176.2189522330036,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#bbf7d0",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771358306393",
+      "type": "sticky",
+      "x": -360.5024496043857,
+      "y": 227.3459793858783,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#bbf7d0",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771358344371",
+      "type": "sticky",
+      "x": -832.0492522542428,
+      "y": -72.63020572781465,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#bbf7d0",
       "rotation": 0
     }
   ]

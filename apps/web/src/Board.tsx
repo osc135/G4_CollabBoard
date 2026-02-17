@@ -587,7 +587,7 @@ export function Board({
     stickyObj && containerRect
       ? {
           left: containerRect.left + (stickyObj.x + 8) * scale + position.x,
-          top: containerRect.top + (stickyObj.y + 8) * scale + position.y,
+          top: containerRect.top + (stickyObj.y + 24) * scale + position.y,
           width: Math.max(80, (stickyObj.width - 16) * scale),
           height: Math.max(40, (stickyObj.height - 16) * scale),
         }
@@ -653,19 +653,20 @@ export function Board({
               top: stickyEditRect.top,
               width: stickyEditRect.width,
               height: stickyEditRect.height,
-              padding: 6,
-              fontSize: 14,
+              padding: 0,
+              fontSize: 14 * scale,
               lineHeight: 1.4,
               fontFamily: "system-ui, sans-serif",
-              background: stickyObj.color,
+              background: "transparent",
               color: "#1a1a1a",
               border: "none",
-              borderRadius: 4,
               resize: "none",
+              overflow: "hidden",
               outline: "none",
               boxSizing: "border-box",
               zIndex: 1000,
-              boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+              wordWrap: "break-word",
+              whiteSpace: "pre-wrap",
             }}
             placeholder="Type your note…"
             spellCheck={false}
@@ -699,24 +700,24 @@ export function Board({
               top: textboxEditRect.top,
               width: textboxEditRect.width,
               height: textboxEditRect.height,
-              padding: 8,
-              fontSize: 14,
+              padding: 0,
+              fontSize: 14 * scale,
               lineHeight: 1.4,
               fontFamily: "system-ui, sans-serif",
-              background: "#fff",
+              background: "transparent",
               color: "#1a1a1a",
-              border: "1px solid #d1d5db",
-              borderRadius: 4,
+              border: "none",
               resize: "none",
               outline: "none",
               boxSizing: "border-box",
               zIndex: 1000,
-              boxShadow: "none",
-              overflow: "auto",
+              overflow: "hidden",
               scrollbarWidth: "none",
               msOverflowStyle: "none",
               WebkitAppearance: "none",
               appearance: "none",
+              wordWrap: "break-word",
+              whiteSpace: "pre-wrap",
             }}
             placeholder="Type text…"
             spellCheck={false}
@@ -855,6 +856,29 @@ export function Board({
                 }}
                 onPointerEnter={() => setHoveredStickyId(obj.id)}
                 onPointerLeave={() => setHoveredStickyId(null)}
+                onTransformEnd={(e) => {
+                  const node = e.target;
+                  const scaleX = node.scaleX();
+                  const scaleY = node.scaleY();
+                  
+                  // Reset scale to 1 and apply it to width/height
+                  node.scaleX(1);
+                  node.scaleY(1);
+                  
+                  const newWidth = Math.max(50, w * scaleX);
+                  const newHeight = Math.max(50, h * scaleY);
+                  const newX = node.x() - newWidth / 2;
+                  const newY = node.y() - newHeight / 2;
+                  
+                  onObjectUpdate({
+                    ...obj,
+                    x: newX,
+                    y: newY,
+                    width: newWidth,
+                    height: newHeight,
+                    rotation: node.rotation()
+                  });
+                }}
               >
                 <Rect width={w} height={h} fill="transparent" listening />
                 {!isHovered ? (
@@ -902,7 +926,7 @@ export function Board({
                   <Line points={[0, 4, 0, 12]} stroke="#991b1b" strokeWidth={1.5} lineCap="round" listening={false} />
                 </Group>
                 {editingStickyId !== obj.id && (
-                  <Text text={obj.text} width={w - 16} height={h - 16} x={8} y={24} fontSize={14} wrap="word" listening={false} />
+                  <Text text={obj.text} width={w - 16} height={h - 16} x={8} y={24} fontSize={14 / scale} wrap="word" listening={false} />
                 )}
                 {isHovered && (() => {
                   const size = 22;
@@ -976,6 +1000,29 @@ export function Board({
                   setDraggingObject(null);
                   onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
                 }}
+                onTransformEnd={(e) => {
+                  const node = e.target;
+                  const scaleX = node.scaleX();
+                  const scaleY = node.scaleY();
+                  
+                  // Reset scale to 1 and apply it to width/height
+                  node.scaleX(1);
+                  node.scaleY(1);
+                  
+                  const newWidth = Math.max(50, w * scaleX);
+                  const newHeight = Math.max(30, h * scaleY);
+                  const newX = node.x() - newWidth / 2;
+                  const newY = node.y() - newHeight / 2;
+                  
+                  onObjectUpdate({
+                    ...obj,
+                    x: newX,
+                    y: newY,
+                    width: newWidth,
+                    height: newHeight,
+                    rotation: node.rotation()
+                  });
+                }}
                 onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
               >
                 <Rect
@@ -1006,7 +1053,7 @@ export function Board({
                     height={h - 16}
                     x={-w / 2 + 8}
                     y={-h / 2 + 8}
-                    fontSize={14}
+                    fontSize={14 / scale}
                     wrap="word"
                     listening={false}
                     fill="#1a1a1a"
@@ -1087,6 +1134,29 @@ export function Board({
                   setDraggingObject(null);
                   onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
                 }}
+                onTransformEnd={(e) => {
+                  const node = e.target;
+                  const scaleX = node.scaleX();
+                  const scaleY = node.scaleY();
+                  
+                  // Reset scale to 1 and apply it to width/height
+                  node.scaleX(1);
+                  node.scaleY(1);
+                  
+                  const newWidth = Math.max(20, w * scaleX);
+                  const newHeight = Math.max(20, h * scaleY);
+                  const newX = node.x() - newWidth / 2;
+                  const newY = node.y() - newHeight / 2;
+                  
+                  onObjectUpdate({
+                    ...obj,
+                    x: newX,
+                    y: newY,
+                    width: newWidth,
+                    height: newHeight,
+                    rotation: node.rotation()
+                  });
+                }}
                 onClick={(e) => {
                   e.cancelBubble = true;
                   onSelect([obj.id]);
@@ -1135,6 +1205,29 @@ export function Board({
                   const newY = e.target.y() - h / 2;
                   setDraggingObject(null);
                   onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
+                }}
+                onTransformEnd={(e) => {
+                  const node = e.target;
+                  const scaleX = node.scaleX();
+                  const scaleY = node.scaleY();
+                  
+                  // Reset scale to 1 and apply it to width/height
+                  node.scaleX(1);
+                  node.scaleY(1);
+                  
+                  const newWidth = Math.max(20, w * scaleX);
+                  const newHeight = Math.max(20, h * scaleY);
+                  const newX = node.x() - newWidth / 2;
+                  const newY = node.y() - newHeight / 2;
+                  
+                  onObjectUpdate({
+                    ...obj,
+                    x: newX,
+                    y: newY,
+                    width: newWidth,
+                    height: newHeight,
+                    rotation: node.rotation()
+                  });
                 }}
                 onClick={(e) => {
                   e.cancelBubble = true;
