@@ -4,7 +4,18 @@ import { useAuth } from "./contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { RoomPreview } from "./RoomPreview";
 import { SupabaseBoardService } from "./lib/supabase-boards";
-import type { BoardSummary } from "@collabboard/shared";
+// Direct type definition to avoid import issues  
+interface BoardSummary {
+  id: string;
+  name: string;
+  room_id: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  is_public: boolean;
+  object_count: number;
+  collaborator_count: number;
+}
 
 interface Room extends BoardSummary {}
 
@@ -18,7 +29,7 @@ export function Dashboard() {
   const [creating, setCreating] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [joinCode, setJoinCode] = useState("");
-  const [, setJoining] = useState(false);
+  const [joining] = useState(false);
 
   useEffect(() => {
     if (user) {
