@@ -240,6 +240,13 @@ export function Board({
     objectId: string;
   } | null>(null);
   const [connectorStyle, setConnectorStyle] = useState<"straight" | "curved" | "orthogonal">("curved");
+  const [drawingLine, setDrawingLine] = useState<{
+    id: string;
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+  } | null>(null);
 
   const handleObjectContextMenu = useCallback((e: Konva.KonvaEventObject<PointerEvent>, objId: string) => {
     e.evt.preventDefault();
@@ -341,26 +348,66 @@ export function Board({
       if (!stage) return;
       const pos = stage.getRelativePointerPosition();
       if (!pos) return;
-      setSelectionBox({ start: { x: pos.x, y: pos.y }, end: { x: pos.x, y: pos.y } });
+      
+      if (tool === "line") {
+        // Start line drawing
+        setDrawingLine({
+          id: `line-${Date.now()}`,
+          startX: pos.x,
+          startY: pos.y,
+          currentX: pos.x,
+          currentY: pos.y,
+        });
+      } else {
+        setSelectionBox({ start: { x: pos.x, y: pos.y }, end: { x: pos.x, y: pos.y } });
+      }
     },
     [tool]
   );
 
   const handleStageMouseMove = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
-      if (!selectionBox) return;
       const stage = e.target.getStage();
       if (!stage) return;
       const pos = stage.getRelativePointerPosition();
       if (!pos) return;
-      setSelectionBox((prev) => (prev ? { ...prev, end: { x: pos.x, y: pos.y } } : null));
+      
+      if (drawingLine) {
+        // Update line current position
+        setDrawingLine((prev) => (prev ? { ...prev, currentX: pos.x, currentY: pos.y } : null));
+      } else if (selectionBox) {
+        setSelectionBox((prev) => (prev ? { ...prev, end: { x: pos.x, y: pos.y } } : null));
+      }
     },
-    [selectionBox]
+    [selectionBox, drawingLine]
   );
 
   const handleStageMouseUp = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
       if (e.target !== e.target.getStage()) return;
+      
+      // Handle line creation
+      if (drawingLine) {
+        const width = drawingLine.currentX - drawingLine.startX;
+        const height = drawingLine.currentY - drawingLine.startY;
+        
+        // Only create line if there's a minimum drag distance
+        if (Math.abs(width) >= 10 || Math.abs(height) >= 10) {
+          onObjectCreate({
+            id: drawingLine.id,
+            type: "line",
+            x: drawingLine.startX,
+            y: drawingLine.startY,
+            width: width,
+            height: height,
+            color: selectedShapeColor,
+            rotation: 0,
+          });
+        }
+        setDrawingLine(null);
+        return;
+      }
+      
       if (!selectionBox) return;
       const { start, end } = selectionBox;
       const minX = Math.min(start.x, end.x);
@@ -404,7 +451,7 @@ export function Board({
       });
       onSelect(ids);
     },
-    [selectionBox, objects, onSelect]
+    [selectionBox, objects, onSelect, drawingLine, onObjectCreate, selectedShapeColor]
   );
 
   const handleStageContextMenu = useCallback((e: Konva.KonvaEventObject<PointerEvent>) => {
@@ -524,17 +571,6 @@ export function Board({
           y: pos.y,
           width: 80,
           height: 80,
-          color: selectedShapeColor,
-          rotation: 0,
-        });
-      } else if (tool === "line") {
-        onObjectCreate({
-          id: `line-${Date.now()}`,
-          type: "line",
-          x: pos.x,
-          y: pos.y,
-          width: 100,
-          height: 60,
           color: selectedShapeColor,
           rotation: 0,
         });
@@ -767,6 +803,15 @@ export function Board({
             />
           ) : null;
         })()}
+        {drawingLine && (
+          <Line
+            points={[drawingLine.startX, drawingLine.startY, drawingLine.currentX, drawingLine.currentY]}
+            stroke={selectedShapeColor}
+            strokeWidth={2}
+            dash={[5, 5]}
+            listening={false}
+          />
+        )}
         {objects.map((obj) => {
           if (obj.type === "sticky") {
             const w = obj.width;
@@ -1016,6 +1061,7 @@ export function Board({
             const w = obj.width;
             const h = obj.height;
             const rot = obj.rotation ?? 0;
+            const isSelected = selectedIds.includes(obj.id);
             return (
               <Group
                 key={obj.id}
@@ -1053,8 +1099,8 @@ export function Board({
                   width={w}
                   height={h}
                   fill={obj.color}
-                  stroke={selectedIds.includes(obj.id) ? "#333" : undefined}
-                  strokeWidth={selectedIds.includes(obj.id) ? 2 : 0}
+                  stroke={isSelected ? "#333" : undefined}
+                  strokeWidth={isSelected ? 2 : 0}
                 />
               </Group>
             );
@@ -1064,6 +1110,7 @@ export function Board({
             const h = obj.height;
             const r = Math.min(w, h) / 2;
             const rot = obj.rotation ?? 0;
+            const isSelected = selectedIds.includes(obj.id);
             return (
               <Group
                 key={obj.id}
@@ -1095,7 +1142,7 @@ export function Board({
                 }}
                 onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
               >
-                <Circle x={-w / 2 + r} y={-h / 2 + r} radius={r} fill={obj.color} stroke={selectedIds.includes(obj.id) ? "#333" : undefined} strokeWidth={selectedIds.includes(obj.id) ? 2 : 0} />
+                <Circle x={-w / 2 + r} y={-h / 2 + r} radius={r} fill={obj.color} stroke={isSelected ? "#333" : undefined} strokeWidth={isSelected ? 2 : 0} />
               </Group>
             );
           }
@@ -1104,30 +1151,26 @@ export function Board({
             const h = obj.height;
             const rot = obj.rotation ?? 0;
             const isSelected = selectedIds.includes(obj.id);
-            const lw = Math.abs(w);
-            const lh = Math.abs(h);
             return (
               <Group
                 key={obj.id}
                 ref={(el) => {
                   if (el) shapeRefs.current[obj.id] = el;
                 }}
-                x={obj.x + w / 2}
-                y={obj.y + h / 2}
-                offsetX={lw / 2}
-                offsetY={lh / 2}
+                x={obj.x}
+                y={obj.y}
                 rotation={rot}
                 draggable
                 onDragMove={(e) => {
-                  const newX = e.target.x() - w / 2;
-                  const newY = e.target.y() - h / 2;
+                  const newX = e.target.x();
+                  const newY = e.target.y();
                   setDraggingObject({ id: obj.id, x: newX, y: newY });
                   // Force re-render to update connectors in real-time
                   e.target.getLayer()?.batchDraw();
                 }}
                 onDragEnd={(e) => {
-                  const newX = e.target.x() - w / 2;
-                  const newY = e.target.y() - h / 2;
+                  const newX = e.target.x();
+                  const newY = e.target.y();
                   setDraggingObject(null);
                   onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
                 }}
@@ -1137,7 +1180,55 @@ export function Board({
                 }}
                 onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
               >
-                <Line x={-w / 2} y={-h / 2} points={[0, 0, w, h]} stroke={isSelected ? "#333" : obj.color} strokeWidth={isSelected ? 4 : 2} lineCap="round" />
+                <Line points={[0, 0, w, h]} stroke={isSelected ? "#333" : obj.color} strokeWidth={isSelected ? 4 : 2} lineCap="round" />
+                {isSelected && (
+                  <>
+                    {/* Start point handle */}
+                    <Circle
+                      x={0}
+                      y={0}
+                      radius={12}
+                      fill="#3b82f6"
+                      stroke="#ffffff"
+                      strokeWidth={2}
+                      draggable
+                      onDragMove={(e) => {
+                        const newStartX = obj.x + e.target.x();
+                        const newStartY = obj.y + e.target.y();
+                        const newWidth = obj.x + obj.width - newStartX;
+                        const newHeight = obj.y + obj.height - newStartY;
+                        onObjectUpdate({
+                          ...obj,
+                          x: newStartX,
+                          y: newStartY,
+                          width: newWidth,
+                          height: newHeight,
+                        });
+                      }}
+                    />
+                    {/* End point handle */}
+                    <Circle
+                      x={w}
+                      y={h}
+                      radius={12}
+                      fill="#3b82f6"
+                      stroke="#ffffff"
+                      strokeWidth={2}
+                      draggable
+                      onDragMove={(e) => {
+                        const newEndX = obj.x + e.target.x();
+                        const newEndY = obj.y + e.target.y();
+                        const newWidth = newEndX - obj.x;
+                        const newHeight = newEndY - obj.y;
+                        onObjectUpdate({
+                          ...obj,
+                          width: newWidth,
+                          height: newHeight,
+                        });
+                      }}
+                    />
+                  </>
+                )}
               </Group>
             );
           }
@@ -1251,27 +1342,19 @@ export function Board({
             dash={[5, 5]}
           />
         )}
+        {/* Standard Konva Transformer */}
         {selectedIds.length > 0 && (
           <Transformer
             ref={trRef}
-            resizeEnabled={false}
-            rotateEnabled
-            rotateAnchorOffset={30}
-            onTransformEnd={() => {
-              const tr = trRef.current;
-              if (!tr) return;
-              const nodes = tr.nodes();
-              nodes.forEach((node) => {
-                const id = Object.keys(shapeRefs.current).find((k) => shapeRefs.current[k] === node);
-                if (!id) return;
-                const obj = objects.find((o) => o.id === id);
-                if (!obj) return;
-                const w = obj.type === "sticky" ? obj.width : obj.type === "textbox" ? (obj.width ?? 200) : obj.type === "rectangle" || obj.type === "circle" || obj.type === "line" ? obj.width : 0;
-                const h = obj.type === "sticky" ? obj.height : obj.type === "textbox" ? (obj.height ?? 80) : obj.type === "rectangle" || obj.type === "circle" || obj.type === "line" ? obj.height : 0;
-                const newRotation = node.rotation();
-                onObjectUpdate({ ...obj, x: node.x() - w / 2, y: node.y() - h / 2, rotation: newRotation } as BoardObject);
-              });
-            }}
+            resizeEnabled={true}
+            rotateEnabled={false}
+            enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right']}
+            anchorSize={8}
+            anchorStroke="#3b82f6"
+            anchorFill="#ffffff"
+            anchorStrokeWidth={2}
+            borderStroke="#3b82f6"
+            borderStrokeWidth={1}
           />
         )}
       </Layer>
