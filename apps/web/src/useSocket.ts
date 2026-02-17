@@ -4,7 +4,7 @@ import type { BoardObject, Cursor } from "@collabboard/shared";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "";
 
-export function useSocket(userId: string, displayName: string) {
+export function useSocket(userId: string, displayName: string, roomId?: string) {
   const [connected, setConnected] = useState(false);
   const [objects, setObjects] = useState<BoardObject[]>([]);
   const [cursors, setCursors] = useState<Record<string, Cursor>>({});
@@ -13,7 +13,11 @@ export function useSocket(userId: string, displayName: string) {
 
   useEffect(() => {
     const socket = io(SOCKET_URL, {
-      auth: { userId: userId || `anon-${Math.random().toString(36).slice(2, 9)}`, name: displayName || "Anonymous" },
+      auth: { 
+        userId: userId || `anon-${Math.random().toString(36).slice(2, 9)}`, 
+        name: displayName || "Anonymous",
+        roomId: roomId || "default"
+      },
     });
     socketRef.current = socket;
 
@@ -58,7 +62,7 @@ export function useSocket(userId: string, displayName: string) {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [userId, displayName]);
+  }, [userId, displayName, roomId]);
 
   const emitCursor = (x: number, y: number) => socketRef.current?.emit("cursor:move", { x, y });
   const createObject = (obj: BoardObject) => {

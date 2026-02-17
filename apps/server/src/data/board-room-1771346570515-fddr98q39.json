@@ -1,0 +1,81 @@
+{
+  "objects": [
+    {
+      "id": "sticky-1771346573033",
+      "type": "sticky",
+      "x": 689.0007813676827,
+      "y": 158.00141477324473,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771346573336",
+      "type": "sticky",
+      "x": 877.0009736414057,
+      "y": 257.00208815089485,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771346573636",
+      "type": "sticky",
+      "x": 467.0005543210524,
+      "y": 270.00217657422263,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771346575797",
+      "type": "sticky",
+      "x": 626.0007169355308,
+      "y": 384.00295197878944,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771346577180",
+      "type": "sticky",
+      "x": 811.0009061410561,
+      "y": 511.0038158066841,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#bbf7d0",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771346577484",
+      "type": "sticky",
+      "x": 691.0007834131478,
+      "y": 265.00214256525044,
+      "width": 150,
+      "height": 100,
+      "text": "Hi there",
+      "color": "#bbf7d0",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771346577775",
+      "type": "sticky",
+      "x": 470.00055738925016,
+      "y": 328.0025710783005,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#bbf7d0",
+      "rotation": 0
+    }
+  ]
+}

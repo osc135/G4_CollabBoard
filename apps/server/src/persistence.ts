@@ -6,11 +6,11 @@ import { boardStateSchema, emptyState } from "@collabboard/shared";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DATA_DIR || join(__dirname, "data");
-const STATE_FILE = join(DATA_DIR, "board-state.json");
 
-export async function loadBoardState(_boardId: string): Promise<BoardState> {
+export async function loadBoardState(boardId: string): Promise<BoardState> {
   try {
-    const raw = await readFile(STATE_FILE, "utf-8");
+    const stateFile = join(DATA_DIR, `board-${boardId}.json`);
+    const raw = await readFile(stateFile, "utf-8");
     const parsed = JSON.parse(raw);
     const result = boardStateSchema.safeParse(parsed);
     if (result.success && parsed.objects) {
@@ -22,11 +22,12 @@ export async function loadBoardState(_boardId: string): Promise<BoardState> {
   return { ...emptyState };
 }
 
-export async function saveBoardState(_boardId: string, state: BoardState): Promise<void> {
+export async function saveBoardState(boardId: string, state: BoardState): Promise<void> {
   try {
-    await mkdir(dirname(STATE_FILE), { recursive: true });
-    await writeFile(STATE_FILE, JSON.stringify(state, null, 2), "utf-8");
+    await mkdir(DATA_DIR, { recursive: true });
+    const stateFile = join(DATA_DIR, `board-${boardId}.json`);
+    await writeFile(stateFile, JSON.stringify(state, null, 2), "utf-8");
   } catch (err) {
-    console.error("Failed to save board state:", err);
+    console.error(`Failed to save board state for room ${boardId}:`, err);
   }
 }
