@@ -321,6 +321,48 @@
       "color": "#3b82f6",
       "strokeWidth": 2,
       "arrowEnd": true
+    },
+    {
+      "id": "sticky-1771341176134",
+      "type": "sticky",
+      "x": 936.0010339826275,
+      "y": 995.0071078751957,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771341177077",
+      "type": "sticky",
+      "x": 1132.0012344382112,
+      "y": 807.00582913784,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "connector-1771341186736",
+      "type": "connector",
+      "startObjectId": "sticky-1771341176134",
+      "endObjectId": "sticky-1771341177077",
+      "startPoint": {
+        "x": 1220.0012477337343,
+        "y": 1185.0084002161407
+      },
+      "endPoint": {
+        "x": 1086.0011106875702,
+        "y": 964.0062168401234
+      },
+      "startAnchor": "top",
+      "endAnchor": "bottom",
+      "style": "curved",
+      "color": "#3b82f6",
+      "strokeWidth": 2,
+      "arrowEnd": true
     }
   ]
 }

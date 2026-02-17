@@ -1,5 +1,12 @@
 {
   "name": "collabboard",
   "private": true,
-  "workspaces": ["packages/*", "apps/*"]
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "build": "npm run build:shared && npm run build:web && npm run build:server",
+    "build:shared": "cd packages/shared && npm run build",
+    "build:web": "cd apps/web && npm run build",
+    "build:server": "cd apps/server && npm run build",
+    "start": "cd apps/server && NODE_ENV=production npm start"
+  }
 }

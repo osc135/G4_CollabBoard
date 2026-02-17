@@ -2,6 +2,8 @@ import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
 import {
   getBoardState,
   addObject,
@@ -14,9 +16,19 @@ import { loadBoardState as loadFromDisk, saveBoardState as saveToDisk } from "./
 import { getCursorsForBoard, setCursor, removeCursor, setPresence, removePresence, getPresenceForBoard } from "./presence.js";
 import { boardObjectSchema } from "@collabboard/shared";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from React build in production
+if (process.env.NODE_ENV === "production") {
+  const clientBuildPath = path.join(__dirname, "../../web/dist");
+  app.use(express.static(clientBuildPath));
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(clientBuildPath, "index.html"));
+  });
+}
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, { cors: { origin: "*" } });
