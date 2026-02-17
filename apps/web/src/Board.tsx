@@ -385,6 +385,55 @@ export function Board({
 
   const handleStageMouseUp = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
+      // Handle connector completion first (before checking if target is stage)
+      if (drawingConnector) {
+        const stage = e.target.getStage();
+        if (!stage) return;
+        const pos = stage.getRelativePointerPosition();
+        if (!pos) return;
+        
+        const targetObj = findObjectAtPoint(objects, pos);
+        const startObj = objects.find(o => o.id === drawingConnector.startObjectId);
+        
+        let startAnchor: "top" | "right" | "bottom" | "left" | "center" = "center";
+        let endAnchor: "top" | "right" | "bottom" | "left" | "center" = "center";
+        let startPoint = drawingConnector.startPoint;
+        let endPoint = targetObj ? getAnchorPoint(targetObj, "center") : pos;
+        
+        // Use smart anchoring if both objects exist
+        if (startObj && targetObj) {
+          const anchors = getBestAnchor(startObj, targetObj);
+          startAnchor = anchors.startAnchor;
+          endAnchor = anchors.endAnchor;
+          startPoint = getAnchorPoint(startObj, startAnchor);
+          endPoint = getAnchorPoint(targetObj, endAnchor);
+        } else if (startObj) {
+          // If only start object exists, use smart start anchor
+          const mousePoint = targetObj ? getAnchorPoint(targetObj, "center") : pos;
+          const anchors = getBestAnchor(startObj, { ...startObj, x: mousePoint.x - 50, y: mousePoint.y - 50, width: 100, height: 100 } as any);
+          startAnchor = anchors.startAnchor;
+          startPoint = getAnchorPoint(startObj, startAnchor);
+        }
+        
+        const newConnector = {
+          id: `connector-${Date.now()}`,
+          type: "connector" as const,
+          startObjectId: drawingConnector.startObjectId,
+          endObjectId: targetObj?.id || null,
+          startPoint,
+          endPoint,
+          startAnchor,
+          endAnchor,
+          style: connectorStyle,
+          color: selectedShapeColor,
+          strokeWidth: 2,
+          arrowEnd: true,
+        };
+        onObjectCreate(newConnector as any);
+        setDrawingConnector(null);
+        return;
+      }
+      
       if (e.target !== e.target.getStage()) return;
       
       // Handle line creation
@@ -452,7 +501,7 @@ export function Board({
       });
       onSelect(ids);
     },
-    [selectionBox, objects, onSelect, drawingLine, onObjectCreate, selectedShapeColor]
+    [selectionBox, objects, onSelect, drawingLine, onObjectCreate, selectedShapeColor, drawingConnector, connectorStyle]
   );
 
   const handleStageContextMenu = useCallback((e: Konva.KonvaEventObject<PointerEvent>) => {

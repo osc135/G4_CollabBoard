@@ -14,8 +14,8 @@
     {
       "id": "rect-1771358405286",
       "type": "rectangle",
-      "x": 907.223364888826,
-      "y": 328.49567226149395,
+      "x": 761.2229279142805,
+      "y": 183.49468600129933,
       "width": 244.37188375107036,
       "height": 162.9145891673802,
       "color": "#3b82f6",
@@ -30,6 +30,26 @@
       "height": 80,
       "color": "#3b82f6",
       "rotation": 0
+    },
+    {
+      "id": "connector-1771359556420",
+      "type": "connector",
+      "startObjectId": "sticky-1771358402577",
+      "endObjectId": null,
+      "startPoint": {
+        "x": 649.6553081896625,
+        "y": 446.2212507132451
+      },
+      "endPoint": {
+        "x": 781.0023375145213,
+        "y": 328.0022309885782
+      },
+      "startAnchor": "right",
+      "endAnchor": "center",
+      "style": "curved",
+      "color": "#3b82f6",
+      "strokeWidth": 2,
+      "arrowEnd": true
     }
   ]
 }
