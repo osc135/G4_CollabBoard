@@ -14,11 +14,11 @@
     {
       "id": "sticky-1771359844791",
       "type": "sticky",
-      "x": 770.002529065007,
-      "y": 254.00206774551145,
-      "width": 150,
-      "height": 100,
-      "text": "New note",
+      "x": 770.7203741596734,
+      "y": 254.7268777482776,
+      "width": 258.8096532389838,
+      "height": 221,
+      "text": "test",
       "color": "#bbf7d0",
       "rotation": 0
     },
@@ -85,11 +85,11 @@
     {
       "id": "sticky-1771359862478",
       "type": "sticky",
-      "x": 514.0017628630641,
-      "y": 660.0048292740564,
-      "width": 150,
-      "height": 100,
-      "text": "New note",
+      "x": 516.1834918317783,
+      "y": 662.1865582427689,
+      "width": 84.67694539008107,
+      "height": 92.58012695982197,
+      "text": "test",
       "color": "#bbf7d0",
       "rotation": 0
     },
@@ -132,6 +132,72 @@
       "color": "#3b82f6",
       "strokeWidth": 2,
       "arrowEnd": true
+    },
+    {
+      "id": "sticky-1771360675051",
+      "type": "sticky",
+      "x": 300.0011223661274,
+      "y": 238.0019589168004,
+      "width": 150,
+      "height": 326,
+      "text": "test.  test.  test.  test.  test.  test.  ",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771360700670",
+      "type": "sticky",
+      "x": 306.00114032398545,
+      "y": 609.0044823825398,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771360850074",
+      "type": "sticky",
+      "x": 520.0017808209222,
+      "y": 1400.0098626019462,
+      "width": 150,
+      "height": 150,
+      "text": "testing how this works 1233 hello. testing how this works 1233 hellotesting how this works 1233 ",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771361067512",
+      "type": "sticky",
+      "x": 2020.0062702854316,
+      "y": -237.0012719355613,
+      "width": 150,
+      "height": 80,
+      "text": "testing how this ",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771361076088",
+      "type": "sticky",
+      "x": 1824.0056836620688,
+      "y": -264.0014555840114,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771361084231",
+      "type": "sticky",
+      "x": 2396.0073956445353,
+      "y": -295.00166643963917,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 0
     }
   ]
 }
