@@ -150,56 +150,56 @@ export function Dashboard() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "white" }}>
+    <div style={{ minHeight: "100vh", background: "#f8fafc" }}>
       {/* Header */}
-      <header style={{ background: "#d2b48c", borderBottom: "2px solid black" }}>
+      <header style={{ background: "white", borderBottom: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)" }}>
         <div style={{ maxWidth: "1280px", margin: "0 auto", padding: "0 24px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", height: "72px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
               <div style={{ 
                 width: "40px", 
                 height: "40px", 
-                background: "black", 
-                borderRadius: "8px",
+                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", 
+                borderRadius: "10px",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: "20px",
-                border: "2px solid black"
+                fontSize: "20px"
               }}>🎨</div>
-              <h1 style={{ fontSize: "28px", fontWeight: "800", color: "black", margin: 0 }}>CollabBoard</h1>
+              <h1 style={{ fontSize: "28px", fontWeight: "700", color: "#1a202c", margin: 0 }}>CollabBoard</h1>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
               <div style={{ 
                 padding: "8px 16px", 
-                background: "white", 
-                borderRadius: "8px",
-                color: "black",
+                background: "#f1f5f9", 
+                borderRadius: "20px",
+                color: "#475569",
                 fontSize: "14px",
-                border: "2px solid black"
+                fontWeight: "500"
               }}>
                 👋 {user?.email?.split('@')[0]}
               </div>
               <button
                 onClick={() => setShowNewRoomModal(true)}
                 style={{
-                  padding: "12px 24px",
-                  background: "white",
-                  color: "black",
-                  border: "2px solid black",
+                  padding: "10px 20px",
+                  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  color: "white",
+                  border: "none",
                   borderRadius: "8px",
-                  fontSize: "16px",
-                  fontWeight: "700",
+                  fontSize: "14px",
+                  fontWeight: "600",
                   cursor: "pointer",
-                  transition: "all 0.2s ease"
+                  transition: "all 0.2s ease",
+                  boxShadow: "0 2px 4px rgba(102, 126, 234, 0.3)"
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "black";
-                  e.currentTarget.style.color = "white";
+                  e.currentTarget.style.transform = "translateY(-1px)";
+                  e.currentTarget.style.boxShadow = "0 4px 8px rgba(102, 126, 234, 0.4)";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "white";
-                  e.currentTarget.style.color = "black";
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow = "0 2px 4px rgba(102, 126, 234, 0.3)";
                 }}
               >
                 + Add New
@@ -207,23 +207,26 @@ export function Dashboard() {
               <button
                 onClick={() => setShowJoinModal(true)}
                 style={{
-                  padding: "12px 20px",
-                  background: "white",
-                  color: "black",
-                  border: "2px solid black",
+                  padding: "10px 20px",
+                  background: "#10b981",
+                  color: "white",
+                  border: "none",
                   borderRadius: "8px",
-                  fontSize: "16px",
-                  fontWeight: "700",
+                  fontSize: "14px",
+                  fontWeight: "600",
                   cursor: "pointer",
-                  transition: "all 0.2s ease"
+                  transition: "all 0.2s ease",
+                  boxShadow: "0 2px 4px rgba(16, 185, 129, 0.3)"
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "black";
-                  e.currentTarget.style.color = "white";
+                  e.currentTarget.style.transform = "translateY(-1px)";
+                  e.currentTarget.style.boxShadow = "0 4px 8px rgba(16, 185, 129, 0.4)";
+                  e.currentTarget.style.background = "#059669";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "white";
-                  e.currentTarget.style.color = "black";
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow = "0 2px 4px rgba(16, 185, 129, 0.3)";
+                  e.currentTarget.style.background = "#10b981";
                 }}
               >
                 🔑 Join Room
@@ -232,21 +235,21 @@ export function Dashboard() {
                 onClick={handleLogout}
                 style={{
                   padding: "8px 16px",
-                  background: "white",
-                  color: "black",
-                  border: "2px solid black",
+                  background: "transparent",
+                  color: "#64748b",
+                  border: "1px solid #e2e8f0",
                   borderRadius: "8px",
                   fontSize: "14px",
                   cursor: "pointer",
                   transition: "all 0.2s ease"
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "black";
-                  e.currentTarget.style.color = "white";
+                  e.currentTarget.style.background = "#f1f5f9";
+                  e.currentTarget.style.color = "#475569";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "white";
-                  e.currentTarget.style.color = "black";
+                  e.currentTarget.style.background = "transparent";
+                  e.currentTarget.style.color = "#64748b";
                 }}
               >
                 Logout
@@ -262,49 +265,55 @@ export function Dashboard() {
           marginBottom: "40px", 
           textAlign: "center",
           background: "white",
-          borderRadius: "8px",
-          padding: "40px",
-          border: "2px solid black"
+          borderRadius: "16px",
+          padding: "48px 32px",
+          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+          border: "1px solid #e2e8f0"
         }}>
           <h2 style={{ 
-            fontSize: "36px", 
-            fontWeight: "900", 
-            color: "black", 
-            marginBottom: "12px"
+            fontSize: "32px", 
+            fontWeight: "700", 
+            color: "#1a202c", 
+            marginBottom: "12px",
+            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            backgroundClip: "text"
           }}>
             Welcome back{user?.user_metadata?.name ? `, ${user.user_metadata.name}` : ''}! ✨
           </h2>
           <p style={{ 
-            fontSize: "18px", 
-            color: "#666"
+            fontSize: "16px", 
+            color: "#64748b",
+            lineHeight: "1.6"
           }}>
-            Select a room to continue working or create a new one 🚀
+            Ready to collaborate? Select a room to continue or create something new.
           </p>
         </div>
 
-        {/* Rooms Grid */}
-        <div style={{ marginTop: "32px" }}>
+        {/* Rooms Section */}
+        <div style={{
+          marginTop: "32px",
+          background: "white",
+          borderRadius: "16px",
+          padding: "32px",
+          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+          border: "1px solid #e2e8f0"
+        }}>
           <h3 style={{ 
             fontSize: "24px", 
-            fontWeight: "800", 
-            color: "black", 
+            fontWeight: "600", 
+            color: "#1a202c", 
             marginBottom: "24px",
-            textAlign: "center",
-            padding: "20px",
-            background: "white",
-            border: "2px solid black",
-            borderRadius: "8px"
+            margin: "0 0 24px 0"
           }}>
-            🏠 Your Rooms
+            Your Workspaces
           </h3>
           
           {rooms.length === 0 ? (
             <div style={{
-              background: "white",
-              borderRadius: "8px",
-              padding: "60px",
-              textAlign: "center",
-              border: "2px solid black"
+              padding: "60px 20px",
+              textAlign: "center"
             }}>
               <div style={{ fontSize: "48px", marginBottom: "16px" }}>📋</div>
               <p style={{ fontSize: "18px", color: "#4a5568", marginBottom: "8px" }}>No rooms yet</p>
@@ -347,77 +356,60 @@ export function Dashboard() {
                 <div
                   key={room.id}
                   onClick={() => enterRoom(room.id)}
-                  style={{
-                    background: "white",
-                    borderRadius: "8px",
-                    padding: "24px",
+                    style={{
+                    background: "#fafbfc",
+                    borderRadius: "12px",
+                    padding: "20px",
                     cursor: "pointer",
-                    border: "2px solid black",
-                    transition: "all 0.2s ease",
+                    border: "1px solid #f1f5f9",
+                    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
                     position: "relative"
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.transform = "translateY(-4px)";
-                    e.currentTarget.style.boxShadow = "0 8px 16px rgba(0,0,0,0.2)";
+                    e.currentTarget.style.boxShadow = "0 10px 25px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)";
+                    e.currentTarget.style.background = "white";
+                    e.currentTarget.style.borderColor = "#e2e8f0";
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.transform = "translateY(0)";
                     e.currentTarget.style.boxShadow = "none";
+                    e.currentTarget.style.background = "#fafbfc";
+                    e.currentTarget.style.borderColor = "#f1f5f9";
                   }}
                 >
-                  <div style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    height: "6px",
-                    background: "linear-gradient(135deg, #ff6b6b 0%, #feca57 50%, #48dbfb 100%)",
-                  }}></div>
                   
                   {/* Room Preview */}
                   <div style={{ 
-                    marginBottom: "20px", 
-                    marginTop: "12px",
-                    borderRadius: "12px",
+                    marginBottom: "16px", 
+                    borderRadius: "8px",
                     overflow: "hidden",
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.1)"
+                    boxShadow: "0 2px 4px rgba(0, 0, 0, 0.05)"
                   }}>
                     <RoomPreview roomId={room.id} width={252} height={140} />
                   </div>
                   
                   <h3 style={{
-                    fontSize: "22px",
-                    fontWeight: "800",
-                    color: "#2d3748",
-                    marginBottom: "12px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "12px",
-                    textShadow: "0 2px 4px rgba(0,0,0,0.1)"
+                    fontSize: "18px",
+                    fontWeight: "600",
+                    color: "#1a202c",
+                    marginBottom: "8px",
+                    lineHeight: "1.4"
                   }}>
-                    <span style={{ fontSize: "28px", filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.2))" }}>🎨</span>
                     {room.name}
                   </h3>
                   
                   <div style={{ 
-                    fontSize: "14px", 
-                    color: "#64748b", 
-                    lineHeight: "1.6",
-                    background: "rgba(0,0,0,0.05)",
-                    padding: "12px 16px",
-                    borderRadius: "8px",
-                    marginBottom: "16px"
+                    fontSize: "12px", 
+                    color: "#94a3b8", 
+                    lineHeight: "1.4"
                   }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                      <span>📅</span>
-                      Created: {new Date(room.created_at).toLocaleDateString()}
+                    <div>
+                      {room.last_accessed 
+                        ? `Last accessed ${new Date(room.last_accessed).toLocaleDateString()}`
+                        : `Created ${new Date(room.created_at).toLocaleDateString()}`
+                      }
                     </div>
-                    {room.last_accessed && (
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <span>⏰</span>
-                        Last used: {new Date(room.last_accessed).toLocaleDateString()}
-                      </div>
-                    )}
                   </div>
                   
                   <div style={{
