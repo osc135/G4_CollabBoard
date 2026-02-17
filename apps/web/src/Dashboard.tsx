@@ -18,7 +18,7 @@ export function Dashboard() {
   const [creating, setCreating] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [joinCode, setJoinCode] = useState("");
-  const [joining, setJoining] = useState(false);
+  const [, setJoining] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -54,7 +54,7 @@ export function Dashboard() {
     setCreating(true);
     try {
       const roomId = `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const board = await SupabaseBoardService.createBoard(newRoomName, roomId);
+      await SupabaseBoardService.createBoard(newRoomName, roomId);
       navigate(`/board/${roomId}`);
     } catch (err) {
       console.error('Error creating board:', err);
