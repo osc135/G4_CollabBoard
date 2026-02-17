@@ -35,11 +35,27 @@ export const shapeSchema = z.object({
   rotation: z.number().optional(),
 });
 
-export const boardObjectSchema = z.union([stickyNoteSchema, textboxSchema, shapeSchema]);
+export const connectorSchema = z.object({
+  id: z.string().min(1, "id required"),
+  type: z.literal("connector"),
+  startObjectId: z.string().nullable(), // null if not connected to an object
+  endObjectId: z.string().nullable(),   // null if not connected to an object
+  startPoint: z.object({ x: z.number(), y: z.number() }), // absolute position if not connected
+  endPoint: z.object({ x: z.number(), y: z.number() }),   // absolute position if not connected
+  startAnchor: z.enum(["top", "right", "bottom", "left", "center"]).optional(), // which side of the object
+  endAnchor: z.enum(["top", "right", "bottom", "left", "center"]).optional(),
+  color: z.string(),
+  strokeWidth: z.number().optional(),
+  arrowStart: z.boolean().optional(),
+  arrowEnd: z.boolean().optional(),
+});
+
+export const boardObjectSchema = z.union([stickyNoteSchema, textboxSchema, shapeSchema, connectorSchema]);
 
 export type StickyNote = z.infer<typeof stickyNoteSchema>;
 export type Textbox = z.infer<typeof textboxSchema>;
 export type Shape = z.infer<typeof shapeSchema>;
+export type Connector = z.infer<typeof connectorSchema>;
 export type BoardObject = z.infer<typeof boardObjectSchema>;
 
 export const boardStateSchema = z.object({

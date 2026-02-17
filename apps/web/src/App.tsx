@@ -54,6 +54,7 @@ export default function App() {
         onSelect={setSelectedIds}
         onObjectCreate={createObject}
         onObjectUpdate={updateObject}
+        onObjectDelete={deleteObject}
         onCursorMove={emitCursor}
         stageRef={stageRef}
         selectedStickyColor={selectedStickyColor}
