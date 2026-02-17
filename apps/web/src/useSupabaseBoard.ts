@@ -9,6 +9,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   const [cursors, setCursors] = useState<Record<string, Cursor>>({});
   const [presence, setPresence] = useState<{ userId: string; name: string }[]>([]);
   const [boardId, setBoardId] = useState<string | null>(null);
+  const [presenceChannel, setPresenceChannel] = useState<any>(null);
 
   useEffect(() => {
     if (!roomId || !userId) return;
@@ -19,11 +20,11 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     async function initializeBoard() {
       try {
         // Get or create board
-        let board = await SupabaseBoardService.getBoardByRoomId(roomId);
+        let board = await SupabaseBoardService.getBoardByRoomId(roomId!);
         
         if (!board) {
           // Create new board if it doesn't exist
-          const newBoard = await SupabaseBoardService.createBoard("New Board", roomId);
+          const newBoard = await SupabaseBoardService.createBoard("New Board", roomId!);
           board = {
             ...newBoard,
             objects: [],
@@ -33,7 +34,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
         setBoardId(board.id);
         
         // Convert Supabase objects to legacy format for compatibility
-        const legacyObjects = board.objects.map(obj => 
+        const legacyObjects = board.objects.map((obj: any) => 
           SupabaseBoardService.convertToLegacyObject(obj)
         );
         setObjects(legacyObjects);
@@ -67,7 +68,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
         const channel = supabase.channel(`board-presence-${board.id}`)
           .on('presence', { event: 'sync' }, () => {
             const presenceState = channel.presenceState();
-            const users = Object.values(presenceState).flat() as { userId: string; name: string; x?: number; y?: number }[];
+            const users = Object.values(presenceState).flat().filter((u: any) => u.userId && u.name) as { userId: string; name: string; x?: number; y?: number }[];
             
             setPresence(users.map(u => ({ userId: u.userId, name: u.name })));
             
@@ -86,10 +87,10 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
             });
             setCursors(cursorMap);
           })
-          .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+          .on('presence', { event: 'join' }, ({ newPresences }) => {
             console.log('User joined:', newPresences);
           })
-          .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+          .on('presence', { event: 'leave' }, ({ leftPresences }) => {
             console.log('User left:', leftPresences);
           })
           .subscribe(async (status) => {
@@ -171,7 +172,6 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     }
   };
 
-  const [presenceChannel, setPresenceChannel] = useState<any>(null);
 
   const emitCursor = async (x: number, y: number) => {
     // Update cursor position in presence channel

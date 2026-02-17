@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { Board, SupabaseBoardObject, BoardWithObjects, BoardSummary } from '@collabboard/shared/supabase-types';
+import type { Board, SupabaseBoardObject, BoardWithObjects, BoardSummary } from '@collabboard/shared';
 
 export class SupabaseBoardService {
   
@@ -120,7 +120,7 @@ export class SupabaseBoardService {
   }
   
   // Convert legacy board object format to Supabase format
-  static convertLegacyObject(legacyObj: any, boardId: string): Omit<SupabaseBoardObject, 'board_id' | 'created_at' | 'updated_at'> {
+  static convertLegacyObject(legacyObj: any, _boardId: string): Omit<SupabaseBoardObject, 'board_id' | 'created_at' | 'updated_at'> {
     const base = {
       id: legacyObj.id,
       type: legacyObj.type,
