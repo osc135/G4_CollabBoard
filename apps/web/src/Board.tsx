@@ -227,6 +227,7 @@ export function Board({
   const ignoreNextClickRef = useRef(false);
   const shapeRefs = useRef<Record<string, Konva.Group>>({});
   const trRef = useRef<Konva.Transformer | null>(null);
+  const [draggingStickyId, setDraggingStickyId] = useState<string | null>(null);
   const [drawingConnector, setDrawingConnector] = useState<{
     startObjectId: string | null;
     startPoint: { x: number; y: number };
@@ -636,6 +637,24 @@ export function Board({
             value={editingStickyText}
             onChange={(e) => setEditingStickyText(e.target.value)}
             onBlur={handleStickyBlur}
+            onInput={(e) => {
+              // Auto-resize sticky note based on content
+              const target = e.target as HTMLTextAreaElement;
+              
+              // Temporarily set height to auto to get the actual content height
+              const originalHeight = target.style.height;
+              target.style.height = 'auto';
+              const scrollHeight = target.scrollHeight;
+              target.style.height = originalHeight;
+              
+              // Calculate the needed height (with padding for pin area)
+              const neededHeight = Math.max(80, Math.ceil((scrollHeight / scale) + 32));
+              
+              // Update if height needs to change (expand or shrink)
+              if (neededHeight !== stickyObj.height) {
+                onObjectUpdate({ ...stickyObj, height: neededHeight });
+              }
+            }}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
                 setEditingStickyText(stickyObj.text === "New note" ? "" : stickyObj.text);
@@ -683,6 +702,25 @@ export function Board({
             value={editingTextboxText}
             onChange={(e) => setEditingTextboxText(e.target.value)}
             onBlur={handleTextboxBlur}
+            onInput={(e) => {
+              // Auto-resize textbox based on content
+              const target = e.target as HTMLTextAreaElement;
+              
+              // Temporarily set height to auto to get the actual content height
+              const originalHeight = target.style.height;
+              target.style.height = 'auto';
+              const scrollHeight = target.scrollHeight;
+              target.style.height = originalHeight;
+              
+              // Calculate the needed height (with padding)
+              const neededHeight = Math.max(40, Math.ceil((scrollHeight / scale) + 16));
+              const currentHeight = textboxObj.height ?? 80;
+              
+              // Update if height needs to change (expand or shrink)
+              if (neededHeight !== currentHeight) {
+                onObjectUpdate({ ...textboxObj, height: neededHeight });
+              }
+            }}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
                 setEditingTextboxText(textboxObj.text);
@@ -831,6 +869,9 @@ export function Board({
                 offsetY={h / 2}
                 rotation={rot}
                 draggable
+                onDragStart={() => {
+                  setDraggingStickyId(obj.id);
+                }}
                 onDragMove={(e) => {
                   const newX = e.target.x() - w / 2;
                   const newY = e.target.y() - h / 2;
@@ -842,6 +883,7 @@ export function Board({
                   const newX = e.target.x() - w / 2;
                   const newY = e.target.y() - h / 2;
                   setDraggingObject(null);
+                  setDraggingStickyId(null);
                   onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
                 }}
                 onClick={(e) => {
@@ -921,10 +963,13 @@ export function Board({
                     listening={false}
                   />
                 )}
-                <Group x={w / 2} y={14} listening={false}>
-                  <Circle radius={4} fill="#dc2626" stroke="#991b1b" strokeWidth={1} />
-                  <Line points={[0, 4, 0, 12]} stroke="#991b1b" strokeWidth={1.5} lineCap="round" listening={false} />
-                </Group>
+                {/* Only show thumbtack when not dragging */}
+                {draggingStickyId !== obj.id && (
+                  <Group x={w / 2} y={4} listening={false}>
+                    <Circle radius={5} fill="#dc2626" stroke="#991b1b" strokeWidth={1} />
+                    <Line points={[0, 5, 0, 14]} stroke="#991b1b" strokeWidth={2} lineCap="round" listening={false} />
+                  </Group>
+                )}
                 {editingStickyId !== obj.id && (
                   <Text text={obj.text} width={w - 16} height={h - 16} x={8} y={24} fontSize={14 / scale} wrap="word" listening={false} />
                 )}
