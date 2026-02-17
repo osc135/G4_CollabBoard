@@ -7,7 +7,10 @@ import {
   addObject,
   updateObject,
   removeObject,
+  loadBoardState,
+  setPersist,
 } from "./board-store.js";
+import { loadBoardState as loadFromDisk, saveBoardState as saveToDisk } from "./persistence.js";
 import { getCursorsForBoard, setCursor, removeCursor, setPresence, removePresence, getPresenceForBoard } from "./presence.js";
 import { boardObjectSchema } from "@collabboard/shared";
 
@@ -26,7 +29,7 @@ io.on("connection", (socket) => {
 
   setPresence(DEFAULT_BOARD, socket.id, userId, name);
   socket.to(DEFAULT_BOARD).emit("presence:joined", { userId, name, socketId: socket.id });
-  socket.emit("board:state", getBoardState(DEFAULT_BOARD));
+  socket.emit("board:state", { objects: getBoardState(DEFAULT_BOARD).objects });
   socket.emit("cursors:state", getCursorsForBoard(DEFAULT_BOARD));
   socket.emit("presence:state", getPresenceForBoard(DEFAULT_BOARD));
   socket.join(DEFAULT_BOARD);
@@ -40,19 +43,22 @@ io.on("connection", (socket) => {
     const parsed = boardObjectSchema.safeParse(data);
     if (!parsed.success) return;
     addObject(DEFAULT_BOARD, parsed.data);
-    io.to(DEFAULT_BOARD).emit("board:state", getBoardState(DEFAULT_BOARD));
+    const state = getBoardState(DEFAULT_BOARD);
+    io.in(DEFAULT_BOARD).emit("board:state", { objects: state.objects });
   });
 
   socket.on("object:update", (data: unknown) => {
     const parsed = boardObjectSchema.safeParse(data);
     if (!parsed.success) return;
     updateObject(DEFAULT_BOARD, parsed.data);
-    io.to(DEFAULT_BOARD).emit("board:state", getBoardState(DEFAULT_BOARD));
+    const state = getBoardState(DEFAULT_BOARD);
+    io.in(DEFAULT_BOARD).emit("board:state", { objects: state.objects });
   });
 
   socket.on("object:delete", (objectId: string) => {
     removeObject(DEFAULT_BOARD, objectId);
-    io.to(DEFAULT_BOARD).emit("board:state", getBoardState(DEFAULT_BOARD));
+    const state = getBoardState(DEFAULT_BOARD);
+    io.in(DEFAULT_BOARD).emit("board:state", { objects: state.objects });
   });
 
   socket.on("disconnect", () => {
@@ -64,4 +70,14 @@ io.on("connection", (socket) => {
 });
 
 const PORT = process.env.PORT || 3001;
-httpServer.listen(PORT, () => console.log(`Server at http://localhost:${PORT}`));
+
+async function start() {
+  const state = await loadFromDisk(DEFAULT_BOARD);
+  loadBoardState(DEFAULT_BOARD, state);
+  let savePromise = Promise.resolve();
+  setPersist((boardId, s) => {
+    savePromise = savePromise.then(() => saveToDisk(boardId, s)).catch((err) => console.error("Save failed:", err));
+  });
+  httpServer.listen(PORT, () => console.log(`Server at http://localhost:${PORT}`));
+}
+start();

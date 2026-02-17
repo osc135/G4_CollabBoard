@@ -1,0 +1,70 @@
+{
+  "objects": [
+    {
+      "id": "sticky-1771292379223",
+      "type": "sticky",
+      "x": 665.4980128331079,
+      "y": 397.645368194423,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 92.33091460442373
+    },
+    {
+      "id": "textbox-1771292399359",
+      "type": "textbox",
+      "x": 330.0004069015434,
+      "y": 246.00167324143365,
+      "width": 187,
+      "height": 67,
+      "text": "test",
+      "autoSize": true,
+      "rotation": 0
+    },
+    {
+      "id": "textbox-1771293447163",
+      "type": "textbox",
+      "x": 426.0005252729014,
+      "y": 564.0038362120674,
+      "width": 187,
+      "height": 67,
+      "text": "",
+      "autoSize": true,
+      "rotation": 0
+    },
+    {
+      "id": "textbox-1771293450100",
+      "type": "textbox",
+      "x": 739.00091121285,
+      "y": 585.0039790497508,
+      "width": 200,
+      "height": 80,
+      "text": "",
+      "autoSize": true,
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771293746572",
+      "type": "sticky",
+      "x": 588.509802528543,
+      "y": 168.9661228156186,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#bbf7d0",
+      "rotation": -134.76353393522632
+    },
+    {
+      "id": "sticky-1771293762560",
+      "type": "sticky",
+      "x": 454.0006522755044,
+      "y": 508.00379540130075,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#bbf7d0",
+      "rotation": 0
+    }
+  ]
+}
