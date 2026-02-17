@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Board, type Tool, STICKY_COLORS, getRandomStickyColor } from "./Board";
-import { useSocket } from "./useSocket";
+import { useSupabaseBoard } from "./useSupabaseBoard";
 import { useAuth } from "./contexts/AuthContext";
 import { supabase } from "./lib/supabase";
 import Konva from "konva";
@@ -18,10 +18,10 @@ export function BoardRoom() {
   const [inviteCode, setInviteCode] = useState<string>("");
   const stageRef = useRef<Konva.Stage | null>(null);
 
-  const { connected, objects, cursors, presence, emitCursor, createObject, updateObject, deleteObject } = useSocket(
+  const { connected, objects, cursors, presence, emitCursor, createObject, updateObject, deleteObject } = useSupabaseBoard(
     userId,
     displayName,
-    roomId // Pass the room ID to the socket hook
+    roomId // Pass the room ID to the Supabase hook
   );
 
   // Generate or fetch invite code

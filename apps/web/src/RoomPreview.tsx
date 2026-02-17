@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Konva from "konva";
 import type { BoardObject } from "@collabboard/shared";
+import { SupabaseBoardService } from "./lib/supabase-boards";
 
 interface RoomPreviewProps {
   roomId: string;
@@ -14,19 +15,28 @@ export function RoomPreview({ roomId, width = 280, height = 180 }: RoomPreviewPr
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Fetch room state from server with proxy support
-    const url = import.meta.env.DEV 
-      ? `http://localhost:3001/api/room/${roomId}/preview`
-      : `/api/room/${roomId}/preview`;
-      
-    fetch(url)
-      .then(res => res.json())
-      .then(data => {
-        setObjects(data.objects || []);
+    // Fetch room state from Supabase
+    SupabaseBoardService.getBoardPreview(roomId)
+      .then(supabaseObjects => {
+        console.log('Supabase objects:', supabaseObjects);
+        
+        // Convert Supabase objects to legacy format for rendering
+        const legacyObjects = supabaseObjects.map(obj => {
+          try {
+            return SupabaseBoardService.convertToLegacyObject(obj);
+          } catch (error) {
+            console.error('Conversion error for object:', obj, error);
+            return null;
+          }
+        }).filter(obj => obj !== null);
+        
+        console.log('Legacy objects:', legacyObjects);
+        setObjects(legacyObjects);
         setLoading(false);
       })
       .catch((err) => {
         console.error('Failed to load preview:', err);
+        setObjects([]);
         setLoading(false);
       });
   }, [roomId]);

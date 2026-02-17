@@ -3,14 +3,10 @@ import { supabase } from "./lib/supabase";
 import { useAuth } from "./contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { RoomPreview } from "./RoomPreview";
+import { SupabaseBoardService } from "./lib/supabase-boards";
+import type { BoardSummary } from "@collabboard/shared";
 
-interface Room {
-  id: string;
-  name: string;
-  created_at: string;
-  owner_id: string;
-  last_accessed?: string;
-}
+interface Room extends BoardSummary {}
 
 export function Dashboard() {
   const { user, signOut } = useAuth();
@@ -32,20 +28,21 @@ export function Dashboard() {
 
   async function loadRooms() {
     try {
-      // Just get rooms I own for now (simpler approach)
-      const { data, error } = await supabase
-        .from('rooms')
+      console.log('Testing Supabase connection...');
+      
+      // Test basic Supabase connection
+      const { data: testData, error: testError } = await supabase
+        .from('boards')
         .select('*')
-        .eq('owner_id', user?.id)
-        .order('last_accessed', { ascending: false, nullsFirst: false });
-
-      if (error) {
-        console.error('Error loading rooms:', error);
-      } else {
-        setRooms(data || []);
-      }
+        .limit(1);
+      
+      console.log('Supabase test:', { data: testData, error: testError });
+      
+      const boards = await SupabaseBoardService.getUserBoards();
+      console.log('getUserBoards result:', boards);
+      setRooms(boards);
     } catch (err) {
-      console.error('Error:', err);
+      console.error('Error loading boards:', err);
     } finally {
       setLoading(false);
     }
@@ -57,29 +54,10 @@ export function Dashboard() {
     setCreating(true);
     try {
       const roomId = `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      
-      const { error } = await supabase
-        .from('rooms')
-        .insert([
-          {
-            id: roomId,
-            name: newRoomName,
-            owner_id: user.id,
-            created_at: new Date().toISOString(),
-            last_accessed: new Date().toISOString()
-          }
-        ])
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error creating room:', error);
-        alert('Failed to create room');
-      } else {
-        navigate(`/board/${roomId}`);
-      }
+      const board = await SupabaseBoardService.createBoard(newRoomName, roomId);
+      navigate(`/board/${roomId}`);
     } catch (err) {
-      console.error('Error:', err);
+      console.error('Error creating board:', err);
       alert('Failed to create room');
     } finally {
       setCreating(false);
@@ -87,10 +65,11 @@ export function Dashboard() {
   }
 
   async function enterRoom(roomId: string) {
+    // Update the board's updated_at timestamp to track access
     await supabase
-      .from('rooms')
-      .update({ last_accessed: new Date().toISOString() })
-      .eq('id', roomId);
+      .from('boards')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('room_id', roomId);
     
     navigate(`/board/${roomId}`);
   }
@@ -101,44 +80,9 @@ export function Dashboard() {
   }
 
   async function joinRoomWithCode() {
-    if (!joinCode.trim() || !user) return;
-
-    setJoining(true);
-    try {
-      // Find room with this invite code
-      const { data: room, error: roomError } = await supabase
-        .from('rooms')
-        .select('*')
-        .eq('invite_code', joinCode.toUpperCase())
-        .single();
-
-      if (roomError || !room) {
-        alert('Invalid room code');
-        setJoining(false);
-        return;
-      }
-
-      // Add user as a member
-      const { error: memberError } = await supabase
-        .from('room_members')
-        .insert([{
-          room_id: room.id,
-          user_id: user.id,
-          role: 'member'
-        }]);
-
-      if (!memberError || memberError.code === '23505') { // 23505 = duplicate key (already member)
-        // Navigate to the room
-        navigate(`/board/${room.id}`);
-      } else {
-        alert('Failed to join room');
-      }
-    } catch (err) {
-      console.error('Error joining room:', err);
-      alert('Failed to join room');
-    } finally {
-      setJoining(false);
-    }
+    alert('Room joining feature coming soon!');
+    setShowJoinModal(false);
+    setJoinCode('');
   }
 
   if (loading) {
@@ -355,7 +299,7 @@ export function Dashboard() {
               {rooms.map((room) => (
                 <div
                   key={room.id}
-                  onClick={() => enterRoom(room.id)}
+                  onClick={() => enterRoom(room.room_id)}
                     style={{
                     background: "#fafbfc",
                     borderRadius: "12px",
@@ -386,7 +330,7 @@ export function Dashboard() {
                     overflow: "hidden",
                     boxShadow: "0 2px 4px rgba(0, 0, 0, 0.05)"
                   }}>
-                    <RoomPreview roomId={room.id} width={252} height={140} />
+                    <RoomPreview roomId={room.room_id} width={252} height={140} />
                   </div>
                   
                   <h3 style={{
@@ -405,10 +349,7 @@ export function Dashboard() {
                     lineHeight: "1.4"
                   }}>
                     <div>
-                      {room.last_accessed 
-                        ? `Last accessed ${new Date(room.last_accessed).toLocaleDateString()}`
-                        : `Created ${new Date(room.created_at).toLocaleDateString()}`
-                      }
+                      Last updated {new Date(room.updated_at).toLocaleDateString()}
                     </div>
                   </div>
                   
