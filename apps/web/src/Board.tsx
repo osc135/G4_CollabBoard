@@ -35,10 +35,12 @@ export function getRandomStickyColor() {
 function getAnchorPoint(obj: BoardObject, anchor: "top" | "right" | "bottom" | "left" | "center"): { x: number; y: number } {
   const width = obj.type === "sticky" ? obj.width : 
                 obj.type === "textbox" ? (obj.width ?? 200) : 
-                obj.type === "rectangle" || obj.type === "circle" ? obj.width : 0;
+                obj.type === "rectangle" || obj.type === "circle" ? obj.width : 
+                obj.type === "line" ? 100 : 0;
   const height = obj.type === "sticky" ? obj.height : 
                  obj.type === "textbox" ? (obj.height ?? 80) : 
-                 obj.type === "rectangle" || obj.type === "circle" ? obj.height : 0;
+                 obj.type === "rectangle" || obj.type === "circle" ? obj.height : 
+                 obj.type === "line" ? 100 : 0;
   
   const centerX = obj.x + width / 2;
   const centerY = obj.y + height / 2;
@@ -51,6 +53,79 @@ function getAnchorPoint(obj: BoardObject, anchor: "top" | "right" | "bottom" | "
     case "center": return { x: centerX, y: centerY };
     default: return { x: centerX, y: centerY };
   }
+}
+
+// Helper function to find the best anchor point between two objects
+function getBestAnchor(fromObj: BoardObject, toObj: BoardObject): { startAnchor: "top" | "right" | "bottom" | "left"; endAnchor: "top" | "right" | "bottom" | "left" } {
+  const fromCenter = getAnchorPoint(fromObj, "center");
+  const toCenter = getAnchorPoint(toObj, "center");
+  
+  const dx = toCenter.x - fromCenter.x;
+  const dy = toCenter.y - fromCenter.y;
+  
+  let startAnchor: "top" | "right" | "bottom" | "left";
+  let endAnchor: "top" | "right" | "bottom" | "left";
+  
+  // Determine start anchor based on direction
+  if (Math.abs(dx) > Math.abs(dy)) {
+    // Horizontal connection is stronger
+    startAnchor = dx > 0 ? "right" : "left";
+    endAnchor = dx > 0 ? "left" : "right";
+  } else {
+    // Vertical connection is stronger
+    startAnchor = dy > 0 ? "bottom" : "top";
+    endAnchor = dy > 0 ? "top" : "bottom";
+  }
+  
+  return { startAnchor, endAnchor };
+}
+
+// Get the best connection point on object perimeter - allows for any point, not just 4 anchors
+function getBestPerimeterPoint(obj: BoardObject, targetPoint: { x: number; y: number }): { x: number; y: number } {
+  const width = obj.type === "sticky" ? obj.width : 
+                obj.type === "textbox" ? (obj.width ?? 200) : 
+                obj.type === "rectangle" || obj.type === "circle" ? obj.width : 
+                obj.type === "line" ? 100 : 0;
+  const height = obj.type === "sticky" ? obj.height : 
+                 obj.type === "textbox" ? (obj.height ?? 80) : 
+                 obj.type === "rectangle" || obj.type === "circle" ? obj.height : 
+                 obj.type === "line" ? 100 : 0;
+  
+  const objCenterX = obj.x + width / 2;
+  const objCenterY = obj.y + height / 2;
+  
+  // Vector from object center to target
+  const dx = targetPoint.x - objCenterX;
+  const dy = targetPoint.y - objCenterY;
+  
+  // Handle edge case where target is at center
+  if (dx === 0 && dy === 0) {
+    return { x: obj.x + width, y: objCenterY }; // Default to right edge
+  }
+  
+  // For circles, use radius-based calculation
+  if (obj.type === "circle") {
+    const radius = Math.min(width, height) / 2;
+    const angle = Math.atan2(dy, dx);
+    return {
+      x: objCenterX + radius * Math.cos(angle),
+      y: objCenterY + radius * Math.sin(angle)
+    };
+  }
+  
+  // For rectangles/stickies, find intersection with rectangle perimeter
+  const halfW = width / 2;
+  const halfH = height / 2;
+  
+  // Calculate the scale factor to reach the edge
+  const scaleX = dx === 0 ? Infinity : Math.abs(halfW / dx);
+  const scaleY = dy === 0 ? Infinity : Math.abs(halfH / dy);
+  const scale = Math.min(scaleX, scaleY);
+  
+  return {
+    x: objCenterX + dx * scale,
+    y: objCenterY + dy * scale
+  };
 }
 
 // Calculate curved path for connector
@@ -148,6 +223,7 @@ export function Board({
     endPoint: { x: number; y: number };
   } | null>(null);
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
+  const [draggingObject, setDraggingObject] = useState<{ id: string; x: number; y: number } | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -343,15 +419,37 @@ export function Board({
         if (!pos) return;
         
         const targetObj = findObjectAtPoint(objects, pos);
+        const startObj = objects.find(o => o.id === drawingConnector.startObjectId);
+        
+        let startAnchor: "top" | "right" | "bottom" | "left" | "center" = "center";
+        let endAnchor: "top" | "right" | "bottom" | "left" | "center" = "center";
+        let startPoint = drawingConnector.startPoint;
+        let endPoint = targetObj ? getAnchorPoint(targetObj, "center") : pos;
+        
+        // Use smart anchoring if both objects exist
+        if (startObj && targetObj) {
+          const anchors = getBestAnchor(startObj, targetObj);
+          startAnchor = anchors.startAnchor;
+          endAnchor = anchors.endAnchor;
+          startPoint = getAnchorPoint(startObj, startAnchor);
+          endPoint = getAnchorPoint(targetObj, endAnchor);
+        } else if (startObj) {
+          // If only start object exists, use smart start anchor
+          const mousePoint = targetObj ? getAnchorPoint(targetObj, "center") : pos;
+          const anchors = getBestAnchor(startObj, { ...startObj, x: mousePoint.x - 50, y: mousePoint.y - 50, width: 100, height: 100 } as any);
+          startAnchor = anchors.startAnchor;
+          startPoint = getAnchorPoint(startObj, startAnchor);
+        }
+        
         const newConnector = {
           id: `connector-${Date.now()}`,
           type: "connector" as const,
           startObjectId: drawingConnector.startObjectId,
           endObjectId: targetObj?.id || null,
-          startPoint: drawingConnector.startPoint,
-          endPoint: targetObj ? getAnchorPoint(targetObj, "center") : pos,
-          startAnchor: "center" as const,
-          endAnchor: "center" as const,
+          startPoint,
+          endPoint,
+          startAnchor,
+          endAnchor,
           style: connectorStyle,
           color: selectedShapeColor,
           strokeWidth: 2,
@@ -608,9 +706,29 @@ export function Board({
           const targetObj = findObjectAtPoint(objects, pos);
           setHoveredObjectId(targetObj?.id || null);
           
-          // If hovering over an object, snap to its center
-          const endPoint = targetObj ? getAnchorPoint(targetObj, "center") : pos;
-          setDrawingConnector(prev => prev ? { ...prev, endPoint } : null);
+          // Update drawing connector with smart anchoring
+          const startObj = objects.find(o => o.id === drawingConnector.startObjectId);
+          let startPoint = drawingConnector.startPoint;
+          let endPoint = pos;
+          
+          if (targetObj) {
+            // If hovering over target object, use smart anchoring
+            if (startObj) {
+              const anchors = getBestAnchor(startObj, targetObj);
+              startPoint = getAnchorPoint(startObj, anchors.startAnchor);
+              endPoint = getAnchorPoint(targetObj, anchors.endAnchor);
+            } else {
+              endPoint = getAnchorPoint(targetObj, "center");
+            }
+          } else if (startObj) {
+            // If not hovering over target, use smart start anchor based on mouse direction
+            const mousePoint = pos;
+            const anchors = getBestAnchor(startObj, { ...startObj, x: mousePoint.x - 50, y: mousePoint.y - 50, width: 100, height: 100 } as any);
+            startPoint = getAnchorPoint(startObj, anchors.startAnchor);
+            endPoint = mousePoint;
+          }
+          
+          setDrawingConnector(prev => prev ? { ...prev, startPoint, endPoint } : null);
         } else {
           setHoveredObjectId(null);
         }
@@ -657,9 +775,17 @@ export function Board({
                 offsetY={h / 2}
                 rotation={rot}
                 draggable
+                onDragMove={(e) => {
+                  const newX = e.target.x() - w / 2;
+                  const newY = e.target.y() - h / 2;
+                  setDraggingObject({ id: obj.id, x: newX, y: newY });
+                  // Force re-render to update connectors in real-time
+                  e.target.getLayer()?.batchDraw();
+                }}
                 onDragEnd={(e) => {
                   const newX = e.target.x() - w / 2;
                   const newY = e.target.y() - h / 2;
+                  setDraggingObject(null);
                   onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
                 }}
                 onClick={(e) => {
@@ -782,9 +908,17 @@ export function Board({
                 offsetY={h / 2}
                 rotation={rot}
                 draggable
+                onDragMove={(e) => {
+                  const newX = e.target.x() - w / 2;
+                  const newY = e.target.y() - h / 2;
+                  setDraggingObject({ id: obj.id, x: newX, y: newY });
+                  // Force re-render to update connectors in real-time
+                  e.target.getLayer()?.batchDraw();
+                }}
                 onDragEnd={(e) => {
                   const newX = e.target.x() - w / 2;
                   const newY = e.target.y() - h / 2;
+                  setDraggingObject(null);
                   onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
                 }}
                 onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
@@ -884,9 +1018,17 @@ export function Board({
                 offsetY={h / 2}
                 rotation={rot}
                 draggable
+                onDragMove={(e) => {
+                  const newX = e.target.x() - w / 2;
+                  const newY = e.target.y() - h / 2;
+                  setDraggingObject({ id: obj.id, x: newX, y: newY });
+                  // Force re-render to update connectors in real-time
+                  e.target.getLayer()?.batchDraw();
+                }}
                 onDragEnd={(e) => {
                   const newX = e.target.x() - w / 2;
                   const newY = e.target.y() - h / 2;
+                  setDraggingObject(null);
                   onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
                 }}
                 onClick={(e) => {
@@ -924,9 +1066,17 @@ export function Board({
                 offsetY={h / 2}
                 rotation={rot}
                 draggable
+                onDragMove={(e) => {
+                  const newX = e.target.x() - w / 2;
+                  const newY = e.target.y() - h / 2;
+                  setDraggingObject({ id: obj.id, x: newX, y: newY });
+                  // Force re-render to update connectors in real-time
+                  e.target.getLayer()?.batchDraw();
+                }}
                 onDragEnd={(e) => {
                   const newX = e.target.x() - w / 2;
                   const newY = e.target.y() - h / 2;
+                  setDraggingObject(null);
                   onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
                 }}
                 onClick={(e) => {
@@ -958,9 +1108,17 @@ export function Board({
                 offsetY={lh / 2}
                 rotation={rot}
                 draggable
+                onDragMove={(e) => {
+                  const newX = e.target.x() - w / 2;
+                  const newY = e.target.y() - h / 2;
+                  setDraggingObject({ id: obj.id, x: newX, y: newY });
+                  // Force re-render to update connectors in real-time
+                  e.target.getLayer()?.batchDraw();
+                }}
                 onDragEnd={(e) => {
                   const newX = e.target.x() - w / 2;
                   const newY = e.target.y() - h / 2;
+                  setDraggingObject(null);
                   onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
                 }}
                 onClick={(e) => {
@@ -979,18 +1137,32 @@ export function Board({
             let startPt = connector.startPoint;
             let endPt = connector.endPoint;
             
-            // If connected to objects, get their current positions
-            if (connector.startObjectId) {
-              const startObj = objects.find(o => o.id === connector.startObjectId);
-              if (startObj) {
-                startPt = getAnchorPoint(startObj, connector.startAnchor || "center");
+            // If connected to objects, get their current positions using perimeter points
+            let startObj = connector.startObjectId ? objects.find(o => o.id === connector.startObjectId) : null;
+            let endObj = connector.endObjectId ? objects.find(o => o.id === connector.endObjectId) : null;
+            
+            // If an object is being dragged, use its temporary position
+            if (draggingObject) {
+              if (startObj && startObj.id === draggingObject.id) {
+                startObj = { ...startObj, x: draggingObject.x, y: draggingObject.y };
+              }
+              if (endObj && endObj.id === draggingObject.id) {
+                endObj = { ...endObj, x: draggingObject.x, y: draggingObject.y };
               }
             }
-            if (connector.endObjectId) {
-              const endObj = objects.find(o => o.id === connector.endObjectId);
-              if (endObj) {
-                endPt = getAnchorPoint(endObj, connector.endAnchor || "center");
-              }
+            
+            if (startObj && endObj) {
+              // Both objects exist - calculate optimal perimeter points
+              const endCenter = getAnchorPoint(endObj, "center");
+              const startCenter = getAnchorPoint(startObj, "center");
+              startPt = getBestPerimeterPoint(startObj, endCenter);
+              endPt = getBestPerimeterPoint(endObj, startCenter);
+            } else if (startObj && !endObj) {
+              // Only start object exists
+              startPt = getBestPerimeterPoint(startObj, endPt);
+            } else if (!startObj && endObj) {
+              // Only end object exists
+              endPt = getBestPerimeterPoint(endObj, startPt);
             }
             
             // Calculate path based on style
@@ -1168,6 +1340,7 @@ export function Board({
           onClick={() => {
             const obj = objects.find(o => o.id === contextMenu.objectId);
             if (obj) {
+              // Start with center, will be updated to proper edge when target is selected
               setDrawingConnector({
                 startObjectId: contextMenu.objectId,
                 startPoint: getAnchorPoint(obj, "center"),
