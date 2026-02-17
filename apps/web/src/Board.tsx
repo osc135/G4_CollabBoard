@@ -16,6 +16,7 @@ interface BoardProps {
   onSelect: (ids: string[]) => void;
   onObjectCreate: (obj: BoardObject) => void;
   onObjectUpdate: (obj: BoardObject) => void;
+  onObjectDelete?: (id: string) => void;
   onCursorMove: (x: number, y: number) => void;
   stageRef: React.RefObject<Konva.Stage | null>;
 }
@@ -30,6 +31,50 @@ export function getRandomStickyColor() {
   return STICKY_COLORS[Math.floor(Math.random() * STICKY_COLORS.length)];
 }
 
+// Helper function to get anchor point on an object
+function getAnchorPoint(obj: BoardObject, anchor: "top" | "right" | "bottom" | "left" | "center"): { x: number; y: number } {
+  const width = obj.type === "sticky" ? obj.width : 
+                obj.type === "textbox" ? (obj.width ?? 200) : 
+                obj.type === "rectangle" || obj.type === "circle" ? obj.width : 0;
+  const height = obj.type === "sticky" ? obj.height : 
+                 obj.type === "textbox" ? (obj.height ?? 80) : 
+                 obj.type === "rectangle" || obj.type === "circle" ? obj.height : 0;
+  
+  const centerX = obj.x + width / 2;
+  const centerY = obj.y + height / 2;
+  
+  switch (anchor) {
+    case "top": return { x: centerX, y: obj.y };
+    case "right": return { x: obj.x + width, y: centerY };
+    case "bottom": return { x: centerX, y: obj.y + height };
+    case "left": return { x: obj.x, y: centerY };
+    case "center": return { x: centerX, y: centerY };
+    default: return { x: centerX, y: centerY };
+  }
+}
+
+// Helper to find which object is under a point
+function findObjectAtPoint(objects: BoardObject[], point: { x: number; y: number }): BoardObject | null {
+  // Check in reverse order (top to bottom)
+  for (let i = objects.length - 1; i >= 0; i--) {
+    const obj = objects[i];
+    if (obj.type === "connector") continue;
+    
+    const width = obj.type === "sticky" ? obj.width : 
+                  obj.type === "textbox" ? (obj.width ?? 200) : 
+                  obj.type === "rectangle" || obj.type === "circle" ? obj.width : 0;
+    const height = obj.type === "sticky" ? obj.height : 
+                   obj.type === "textbox" ? (obj.height ?? 80) : 
+                   obj.type === "rectangle" || obj.type === "circle" ? obj.height : 0;
+    
+    if (point.x >= obj.x && point.x <= obj.x + width &&
+        point.y >= obj.y && point.y <= obj.y + height) {
+      return obj;
+    }
+  }
+  return null;
+}
+
 export function Board({
   objects,
   cursors,
@@ -38,6 +83,7 @@ export function Board({
   onSelect,
   onObjectCreate,
   onObjectUpdate,
+  onObjectDelete,
   onCursorMove,
   stageRef,
   selectedStickyColor,
@@ -56,6 +102,30 @@ export function Board({
   const ignoreNextClickRef = useRef(false);
   const shapeRefs = useRef<Record<string, Konva.Group>>({});
   const trRef = useRef<Konva.Transformer | null>(null);
+  const [drawingConnector, setDrawingConnector] = useState<{
+    startObjectId: string | null;
+    startPoint: { x: number; y: number };
+    endPoint: { x: number; y: number };
+  } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    objectId: string;
+  } | null>(null);
+
+  const handleObjectContextMenu = useCallback((e: Konva.KonvaEventObject<PointerEvent>, objId: string) => {
+    e.evt.preventDefault();
+    e.cancelBubble = true;
+    const stage = e.target.getStage();
+    if (!stage) return;
+    const pointerPos = stage.getPointerPosition();
+    if (!pointerPos) return;
+    setContextMenu({
+      x: pointerPos.x,
+      y: pointerPos.y,
+      objectId: objId
+    });
+  }, []);
 
   const handleStageDragEnd = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
     const stage = e.target.getStage();
@@ -201,6 +271,36 @@ export function Board({
 
   const handleStageClick = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
+      // Close context menu on any click
+      if (contextMenu) {
+        setContextMenu(null);
+      }
+      
+      // If we're drawing a connector, complete it
+      if (drawingConnector) {
+        const stage = e.target.getStage();
+        if (!stage) return;
+        const pos = stage.getRelativePointerPosition();
+        if (!pos) return;
+        
+        const targetObj = findObjectAtPoint(objects, pos);
+        onObjectCreate({
+          id: `connector-${Date.now()}`,
+          type: "connector",
+          startObjectId: drawingConnector.startObjectId,
+          endObjectId: targetObj?.id || null,
+          startPoint: drawingConnector.startPoint,
+          endPoint: targetObj ? getAnchorPoint(targetObj, "center") : pos,
+          startAnchor: "center",
+          endAnchor: "center",
+          color: selectedShapeColor,
+          strokeWidth: 2,
+          arrowEnd: true,
+        } as any);
+        setDrawingConnector(null);
+        return;
+      }
+      
       if (e.target !== e.target.getStage()) return;
       if (ignoreNextClickRef.current) {
         ignoreNextClickRef.current = false;
@@ -271,7 +371,7 @@ export function Board({
         });
       }
     },
-    [tool, onSelect, onObjectCreate, selectedStickyColor, selectedShapeColor]
+    [tool, onSelect, onObjectCreate, selectedStickyColor, selectedShapeColor, drawingConnector, objects, contextMenu]
   );
 
   const stickyObj = editingStickyId ? objects.find((o): o is Extract<BoardObject, { type: "sticky" }> => o.type === "sticky" && o.id === editingStickyId) : null;
@@ -436,6 +536,14 @@ export function Board({
       onPointerMove={(e) => {
         handlePointerMove(e);
         handleStageMouseMove(e);
+        // Update connector endpoint while drawing
+        if (drawingConnector) {
+          const stage = e.target.getStage();
+          if (!stage) return;
+          const pos = stage.getRelativePointerPosition();
+          if (!pos) return;
+          setDrawingConnector(prev => prev ? { ...prev, endPoint: pos } : null);
+        }
       }}
       onMouseDown={handleStageMouseDown}
       onMouseUp={handleStageMouseUp}
@@ -478,11 +586,16 @@ export function Board({
                 offsetY={h / 2}
                 rotation={rot}
                 draggable
-                onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x() - w / 2, y: e.target.y() - h / 2, rotation: e.target.rotation() })}
+                onDragEnd={(e) => {
+                  const newX = e.target.x() - w / 2;
+                  const newY = e.target.y() - h / 2;
+                  onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
+                }}
                 onClick={(e) => {
                   e.cancelBubble = true;
                   onSelect([obj.id]);
                 }}
+                onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
                 onDblClick={(e) => {
                   e.cancelBubble = true;
                   setEditingStickyId(obj.id);
@@ -587,7 +700,12 @@ export function Board({
                 offsetY={h / 2}
                 rotation={rot}
                 draggable
-                onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x() - w / 2, y: e.target.y() - h / 2, rotation: e.target.rotation() })}
+                onDragEnd={(e) => {
+                  const newX = e.target.x() - w / 2;
+                  const newY = e.target.y() - h / 2;
+                  onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
+                }}
+                onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
               >
                 <Rect
                   name="textbox-body"
@@ -684,11 +802,16 @@ export function Board({
                 offsetY={h / 2}
                 rotation={rot}
                 draggable
-                onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x() - w / 2, y: e.target.y() - h / 2, rotation: e.target.rotation() })}
+                onDragEnd={(e) => {
+                  const newX = e.target.x() - w / 2;
+                  const newY = e.target.y() - h / 2;
+                  onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
+                }}
                 onClick={(e) => {
                   e.cancelBubble = true;
                   onSelect([obj.id]);
                 }}
+                onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
               >
                 <Rect
                   x={-w / 2}
@@ -719,11 +842,16 @@ export function Board({
                 offsetY={h / 2}
                 rotation={rot}
                 draggable
-                onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x() - w / 2, y: e.target.y() - h / 2, rotation: e.target.rotation() })}
+                onDragEnd={(e) => {
+                  const newX = e.target.x() - w / 2;
+                  const newY = e.target.y() - h / 2;
+                  onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
+                }}
                 onClick={(e) => {
                   e.cancelBubble = true;
                   onSelect([obj.id]);
                 }}
+                onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
               >
                 <Circle x={-w / 2 + r} y={-h / 2 + r} radius={r} fill={obj.color} stroke={selectedIds.includes(obj.id) ? "#333" : undefined} strokeWidth={selectedIds.includes(obj.id) ? 2 : 0} />
               </Group>
@@ -748,18 +876,90 @@ export function Board({
                 offsetY={lh / 2}
                 rotation={rot}
                 draggable
-                onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x() - w / 2, y: e.target.y() - h / 2, rotation: e.target.rotation() })}
+                onDragEnd={(e) => {
+                  const newX = e.target.x() - w / 2;
+                  const newY = e.target.y() - h / 2;
+                  onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
+                }}
                 onClick={(e) => {
                   e.cancelBubble = true;
                   onSelect([obj.id]);
                 }}
+                onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
               >
                 <Line x={-w / 2} y={-h / 2} points={[0, 0, w, h]} stroke={isSelected ? "#333" : obj.color} strokeWidth={isSelected ? 4 : 2} lineCap="round" />
               </Group>
             );
           }
+          // Render connectors
+          if (obj.type === "connector") {
+            const connector = obj as any;
+            let startPt = connector.startPoint;
+            let endPt = connector.endPoint;
+            
+            // If connected to objects, get their current positions
+            if (connector.startObjectId) {
+              const startObj = objects.find(o => o.id === connector.startObjectId);
+              if (startObj) {
+                startPt = getAnchorPoint(startObj, connector.startAnchor || "center");
+              }
+            }
+            if (connector.endObjectId) {
+              const endObj = objects.find(o => o.id === connector.endObjectId);
+              if (endObj) {
+                endPt = getAnchorPoint(endObj, connector.endAnchor || "center");
+              }
+            }
+            
+            const points = [startPt.x, startPt.y, endPt.x, endPt.y];
+            
+            return (
+              <Group key={obj.id}>
+                <Line
+                  points={points}
+                  stroke={connector.color || "#333"}
+                  strokeWidth={connector.strokeWidth || 2}
+                  lineCap="round"
+                  lineJoin="round"
+                />
+                {connector.arrowEnd && (
+                  <Line
+                    points={[
+                      endPt.x - 10 * Math.cos(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) - Math.PI / 6),
+                      endPt.y - 10 * Math.sin(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) - Math.PI / 6),
+                      endPt.x,
+                      endPt.y,
+                      endPt.x - 10 * Math.cos(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) + Math.PI / 6),
+                      endPt.y - 10 * Math.sin(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) + Math.PI / 6),
+                    ]}
+                    stroke={connector.color || "#333"}
+                    strokeWidth={connector.strokeWidth || 2}
+                    lineCap="round"
+                    lineJoin="round"
+                  />
+                )}
+              </Group>
+            );
+          }
+          
           return null;
         })}
+        {/* Show connector preview while drawing */}
+        {drawingConnector && (
+          <Line
+            points={[
+              drawingConnector.startPoint.x,
+              drawingConnector.startPoint.y,
+              drawingConnector.endPoint.x,
+              drawingConnector.endPoint.y
+            ]}
+            stroke={selectedShapeColor}
+            strokeWidth={2}
+            lineCap="round"
+            lineJoin="round"
+            dash={[5, 5]}
+          />
+        )}
         {selectedIds.length > 0 && (
           <Transformer
             ref={trRef}
@@ -805,6 +1005,73 @@ export function Board({
     </Stage>
     {stickyEditor}
     {textboxEditor}
+    {contextMenu && (
+      <div
+        style={{
+          position: "fixed",
+          left: contextMenu.x + position.x,
+          top: contextMenu.y + position.y,
+          background: "white",
+          border: "1px solid #ddd",
+          borderRadius: 4,
+          boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+          zIndex: 1000,
+          padding: 4,
+        }}
+        onMouseLeave={() => setContextMenu(null)}
+      >
+        <button
+          style={{
+            display: "block",
+            width: "100%",
+            padding: "8px 12px",
+            background: "white",
+            border: "none",
+            cursor: "pointer",
+            textAlign: "left",
+            fontSize: 14,
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.background = "#f3f4f6"}
+          onMouseLeave={(e) => e.currentTarget.style.background = "white"}
+          onClick={() => {
+            const obj = objects.find(o => o.id === contextMenu.objectId);
+            if (obj) {
+              setDrawingConnector({
+                startObjectId: contextMenu.objectId,
+                startPoint: getAnchorPoint(obj, "center"),
+                endPoint: { x: contextMenu.x, y: contextMenu.y }
+              });
+              setContextMenu(null);
+            }
+          }}
+        >
+          Add Connector
+        </button>
+        <button
+          style={{
+            display: "block",
+            width: "100%",
+            padding: "8px 12px",
+            background: "white",
+            border: "none",
+            cursor: "pointer",
+            textAlign: "left",
+            fontSize: 14,
+            borderTop: "1px solid #eee",
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.background = "#f3f4f6"}
+          onMouseLeave={(e) => e.currentTarget.style.background = "white"}
+          onClick={() => {
+            if (onObjectDelete) {
+              onObjectDelete(contextMenu.objectId);
+            }
+            setContextMenu(null);
+          }}
+        >
+          Delete
+        </button>
+      </div>
+    )}
     </>
   );
 }

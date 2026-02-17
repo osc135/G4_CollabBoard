@@ -1,43 +1,149 @@
 {
   "objects": [
     {
-      "id": "sticky-1771292379223",
+      "id": "connector-1771297303633",
+      "type": "connector",
+      "startObjectId": null,
+      "endObjectId": null,
+      "startPoint": {
+        "x": 678.0006934126818,
+        "y": 438.00297918596726
+      },
+      "endPoint": {
+        "x": 503.0005144344822,
+        "y": 341.002319411906
+      },
+      "startAnchor": "center",
+      "endAnchor": "center",
+      "color": "#3b82f6",
+      "strokeWidth": 2,
+      "arrowEnd": true
+    },
+    {
+      "id": "connector-1771297310388",
+      "type": "connector",
+      "startObjectId": null,
+      "endObjectId": null,
+      "startPoint": {
+        "x": 513.0005246618078,
+        "y": 351.00238742985044
+      },
+      "endPoint": {
+        "x": 715.0007312537869,
+        "y": 615.0041831035842
+      },
+      "startAnchor": "center",
+      "endAnchor": "center",
+      "color": "#3b82f6",
+      "strokeWidth": 2,
+      "arrowEnd": true
+    },
+    {
+      "id": "connector-1771297321781",
+      "type": "connector",
+      "startObjectId": null,
+      "endObjectId": null,
+      "startPoint": {
+        "x": 378.00038659291107,
+        "y": 566.0038498156563
+      },
+      "endPoint": {
+        "x": 392.00040091116705,
+        "y": 470.0031968433895
+      },
+      "startAnchor": "center",
+      "endAnchor": "center",
+      "color": "#3b82f6",
+      "strokeWidth": 2,
+      "arrowEnd": true
+    },
+    {
+      "id": "connector-1771297349750",
+      "type": "connector",
+      "startObjectId": null,
+      "endObjectId": null,
+      "startPoint": {
+        "x": 452.0004622751212,
+        "y": 460.00312882544506
+      },
+      "endPoint": {
+        "x": 682.0006975036121,
+        "y": 614.0041763017897
+      },
+      "startAnchor": "center",
+      "endAnchor": "center",
+      "color": "#3b82f6",
+      "strokeWidth": 2,
+      "arrowEnd": true
+    },
+    {
+      "id": "connector-1771299166166",
+      "type": "connector",
+      "startObjectId": "sticky-1771299160606",
+      "endObjectId": null,
+      "startPoint": {
+        "x": 1076.0011004602443,
+        "y": 347.0023602226727
+      },
+      "endPoint": {
+        "x": 1230.00125796106,
+        "y": 338.00229900652266
+      },
+      "startAnchor": "center",
+      "endAnchor": "center",
+      "color": "#3b82f6",
+      "strokeWidth": 2,
+      "arrowEnd": true
+    },
+    {
+      "id": "sticky-1771299188857",
       "type": "sticky",
-      "x": 665.4980128331079,
-      "y": 397.645368194423,
+      "x": 73.5355839422752,
+      "y": 2179.475097285044,
       "width": 150,
       "height": 100,
-      "text": "New note",
+      "text": "Goals : 1 2 3 ",
       "color": "#fef08a",
-      "rotation": 92.33091460442373
-    },
-    {
-      "id": "textbox-1771292399359",
-      "type": "textbox",
-      "x": 330.0004069015434,
-      "y": 246.00167324143365,
-      "width": 187,
-      "height": 67,
-      "text": "test",
-      "autoSize": true,
       "rotation": 0
     },
     {
-      "id": "textbox-1771293447163",
-      "type": "textbox",
-      "x": 426.0005252729014,
-      "y": 564.0038362120674,
-      "width": 187,
-      "height": 67,
+      "id": "sticky-1771299203126",
+      "type": "sticky",
+      "x": 254.16742629736325,
+      "y": 2262.4533293999884,
+      "width": 150,
+      "height": 100,
+      "text": "Goal 2",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771299205928",
+      "type": "sticky",
+      "x": 242.31346164281058,
+      "y": 2421.6360603960047,
+      "width": 150,
+      "height": 100,
+      "text": "Goal3",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771299217690",
+      "type": "sticky",
+      "x": 65.80484914068734,
+      "y": 2296.3199423404258,
+      "width": 150,
+      "height": 100,
       "text": "",
-      "autoSize": true,
+      "color": "#fef08a",
       "rotation": 0
     },
     {
-      "id": "textbox-1771293450100",
+      "id": "textbox-1771299238582",
       "type": "textbox",
-      "x": 739.00091121285,
-      "y": 585.0039790497508,
+      "x": 614.5052760207818,
+      "y": 2190.089798166182,
       "width": 200,
       "height": 80,
       "text": "",
@@ -45,26 +151,176 @@
       "rotation": 0
     },
     {
-      "id": "sticky-1771293746572",
-      "type": "sticky",
-      "x": 588.509802528543,
-      "y": 168.9661228156186,
-      "width": 150,
-      "height": 100,
-      "text": "New note",
-      "color": "#bbf7d0",
-      "rotation": -134.76353393522632
+      "id": "rect-1771299241409",
+      "type": "rectangle",
+      "x": 581.9227069761193,
+      "y": 2400.6245379090146,
+      "width": 120,
+      "height": 80,
+      "color": "#3b82f6",
+      "rotation": 0
     },
     {
-      "id": "sticky-1771293762560",
+      "id": "rect-1771299242896",
+      "type": "rectangle",
+      "x": 673.8222606918343,
+      "y": 2419.8400101871302,
+      "width": 120,
+      "height": 80,
+      "color": "#3b82f6",
+      "rotation": 0
+    },
+    {
+      "id": "rect-1771299250905",
+      "type": "rectangle",
+      "x": 22.17062944720834,
+      "y": 2317.912495416862,
+      "width": 120,
+      "height": 80,
+      "color": "#3b82f6",
+      "rotation": 0
+    },
+    {
+      "id": "textbox-1771299262395",
+      "type": "textbox",
+      "x": 278.00028431965416,
+      "y": 253.00172085399478,
+      "width": 200,
+      "height": 80,
+      "text": "",
+      "autoSize": true,
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771299264595",
       "type": "sticky",
-      "x": 454.0006522755044,
-      "y": 508.00379540130075,
+      "x": 385.00047045698176,
+      "y": 151.0013671606836,
       "width": 150,
       "height": 100,
       "text": "New note",
-      "color": "#bbf7d0",
+      "color": "#fef08a",
       "rotation": 0
+    },
+    {
+      "id": "connector-1771299267470",
+      "type": "connector",
+      "startObjectId": "sticky-1771299264595",
+      "endObjectId": null,
+      "startPoint": {
+        "x": 460.00047045698176,
+        "y": 201.0013671606836
+      },
+      "endPoint": {
+        "x": 828.0008468225672,
+        "y": 164.0011154942891
+      },
+      "startAnchor": "center",
+      "endAnchor": "center",
+      "color": "#3b82f6",
+      "strokeWidth": 2,
+      "arrowEnd": true
+    },
+    {
+      "id": "sticky-1771299269488",
+      "type": "sticky",
+      "x": 699.0007915950084,
+      "y": 215.0018024755281,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771299272173",
+      "type": "sticky",
+      "x": 978.0010769373953,
+      "y": 97.00099986378353,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771299272833",
+      "type": "sticky",
+      "x": 878.0009746641383,
+      "y": 216.0018092773226,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771299273215",
+      "type": "sticky",
+      "x": 884.0009808005336,
+      "y": 346.0026935106005,
+      "width": 150,
+      "height": 100,
+      "text": "New note",
+      "color": "#fef08a",
+      "rotation": 0
+    },
+    {
+      "id": "connector-1771299276561",
+      "type": "connector",
+      "startObjectId": "sticky-1771299269488",
+      "endObjectId": null,
+      "startPoint": {
+        "x": 774.0007915950084,
+        "y": 265.0018024755281
+      },
+      "endPoint": {
+        "x": 854.0008734136139,
+        "y": 174.00118351223355
+      },
+      "startAnchor": "center",
+      "endAnchor": "center",
+      "color": "#3b82f6",
+      "strokeWidth": 2,
+      "arrowEnd": true
+    },
+    {
+      "id": "connector-1771299279677",
+      "type": "connector",
+      "startObjectId": "sticky-1771299269488",
+      "endObjectId": null,
+      "startPoint": {
+        "x": 774.0007915950084,
+        "y": 265.0018024755281
+      },
+      "endPoint": {
+        "x": 862.0008815954745,
+        "y": 272.00185008808927
+      },
+      "startAnchor": "center",
+      "endAnchor": "center",
+      "color": "#3b82f6",
+      "strokeWidth": 2,
+      "arrowEnd": true
+    },
+    {
+      "id": "connector-1771299281980",
+      "type": "connector",
+      "startObjectId": "sticky-1771299269488",
+      "endObjectId": null,
+      "startPoint": {
+        "x": 774.0007915950084,
+        "y": 265.0018024755281
+      },
+      "endPoint": {
+        "x": 874.0008938682653,
+        "y": 374.0025438711227
+      },
+      "startAnchor": "center",
+      "endAnchor": "center",
+      "color": "#3b82f6",
+      "strokeWidth": 2,
+      "arrowEnd": true
     }
   ]
 }
