@@ -53,6 +53,42 @@ function getAnchorPoint(obj: BoardObject, anchor: "top" | "right" | "bottom" | "
   }
 }
 
+// Calculate curved path for connector
+function calculateCurvedPath(start: { x: number; y: number }, end: { x: number; y: number }): number[] {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  
+  // Control point offset for the curve
+  const controlOffset = Math.min(distance * 0.3, 100);
+  
+  // Calculate control points perpendicular to the line
+  const angle = Math.atan2(dy, dx);
+  const perpAngle = angle + Math.PI / 2;
+  
+  const midX = (start.x + end.x) / 2;
+  const midY = (start.y + end.y) / 2;
+  
+  const controlX = midX + Math.cos(perpAngle) * controlOffset;
+  const controlY = midY + Math.sin(perpAngle) * controlOffset;
+  
+  // Return quadratic bezier curve points
+  return [start.x, start.y, controlX, controlY, end.x, end.y];
+}
+
+// Calculate orthogonal (right-angle) path
+function calculateOrthogonalPath(start: { x: number; y: number }, end: { x: number; y: number }): number[] {
+  const midX = (start.x + end.x) / 2;
+  
+  // Create a path that goes horizontal then vertical
+  return [
+    start.x, start.y,
+    midX, start.y,
+    midX, end.y,
+    end.x, end.y
+  ];
+}
+
 // Helper to find which object is under a point
 function findObjectAtPoint(objects: BoardObject[], point: { x: number; y: number }): BoardObject | null {
   // Check in reverse order (top to bottom)
@@ -62,13 +98,17 @@ function findObjectAtPoint(objects: BoardObject[], point: { x: number; y: number
     
     const width = obj.type === "sticky" ? obj.width : 
                   obj.type === "textbox" ? (obj.width ?? 200) : 
-                  obj.type === "rectangle" || obj.type === "circle" ? obj.width : 0;
+                  obj.type === "rectangle" || obj.type === "circle" ? obj.width : 
+                  obj.type === "line" ? 100 : 0;
     const height = obj.type === "sticky" ? obj.height : 
                    obj.type === "textbox" ? (obj.height ?? 80) : 
-                   obj.type === "rectangle" || obj.type === "circle" ? obj.height : 0;
+                   obj.type === "rectangle" || obj.type === "circle" ? obj.height : 
+                   obj.type === "line" ? 100 : 0;
     
-    if (point.x >= obj.x && point.x <= obj.x + width &&
-        point.y >= obj.y && point.y <= obj.y + height) {
+    // Add some padding for easier selection (10px around the object)
+    const padding = 10;
+    if (point.x >= obj.x - padding && point.x <= obj.x + width + padding &&
+        point.y >= obj.y - padding && point.y <= obj.y + height + padding) {
       return obj;
     }
   }
@@ -107,11 +147,13 @@ export function Board({
     startPoint: { x: number; y: number };
     endPoint: { x: number; y: number };
   } | null>(null);
+  const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
     objectId: string;
   } | null>(null);
+  const [connectorStyle, setConnectorStyle] = useState<"straight" | "curved" | "orthogonal">("curved");
 
   const handleObjectContextMenu = useCallback((e: Konva.KonvaEventObject<PointerEvent>, objId: string) => {
     e.evt.preventDefault();
@@ -120,9 +162,14 @@ export function Board({
     if (!stage) return;
     const pointerPos = stage.getPointerPosition();
     if (!pointerPos) return;
+    
+    // Use the raw event coordinates for fixed positioning
+    const clientX = e.evt.clientX;
+    const clientY = e.evt.clientY;
+    
     setContextMenu({
-      x: pointerPos.x,
-      y: pointerPos.y,
+      x: clientX,
+      y: clientY,
       objectId: objId
     });
   }, []);
@@ -158,7 +205,12 @@ export function Board({
     const tr = trRef.current;
     if (!tr || selectedIds.length === 0) return;
     const attach = () => {
-      const nodes = selectedIds.map((id) => shapeRefs.current[id]).filter(Boolean) as Konva.Node[];
+      // Filter out connectors from transformation (they can be selected but not transformed)
+      const transformableIds = selectedIds.filter(id => {
+        const obj = objects.find(o => o.id === id);
+        return obj && obj.type !== "connector";
+      });
+      const nodes = transformableIds.map((id) => shapeRefs.current[id]).filter(Boolean) as Konva.Node[];
       if (nodes.length > 0) {
         tr.nodes(nodes);
         tr.forceUpdate();
@@ -269,9 +321,16 @@ export function Board({
     [selectionBox, objects, onSelect]
   );
 
+  const handleStageContextMenu = useCallback((e: Konva.KonvaEventObject<PointerEvent>) => {
+    // Prevent default browser context menu when right-clicking on stage background
+    e.evt.preventDefault();
+    // Close any existing context menu
+    setContextMenu(null);
+  }, []);
+
   const handleStageClick = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
-      // Close context menu on any click
+      // Close context menu on any left click
       if (contextMenu) {
         setContextMenu(null);
       }
@@ -284,19 +343,21 @@ export function Board({
         if (!pos) return;
         
         const targetObj = findObjectAtPoint(objects, pos);
-        onObjectCreate({
+        const newConnector = {
           id: `connector-${Date.now()}`,
-          type: "connector",
+          type: "connector" as const,
           startObjectId: drawingConnector.startObjectId,
           endObjectId: targetObj?.id || null,
           startPoint: drawingConnector.startPoint,
           endPoint: targetObj ? getAnchorPoint(targetObj, "center") : pos,
-          startAnchor: "center",
-          endAnchor: "center",
+          startAnchor: "center" as const,
+          endAnchor: "center" as const,
+          style: connectorStyle,
           color: selectedShapeColor,
           strokeWidth: 2,
           arrowEnd: true,
-        } as any);
+        };
+        onObjectCreate(newConnector as any);
         setDrawingConnector(null);
         return;
       }
@@ -371,7 +432,7 @@ export function Board({
         });
       }
     },
-    [tool, onSelect, onObjectCreate, selectedStickyColor, selectedShapeColor, drawingConnector, objects, contextMenu]
+    [tool, onSelect, onObjectCreate, selectedStickyColor, selectedShapeColor, drawingConnector, objects, contextMenu, connectorStyle]
   );
 
   const stickyObj = editingStickyId ? objects.find((o): o is Extract<BoardObject, { type: "sticky" }> => o.type === "sticky" && o.id === editingStickyId) : null;
@@ -542,12 +603,22 @@ export function Board({
           if (!stage) return;
           const pos = stage.getRelativePointerPosition();
           if (!pos) return;
-          setDrawingConnector(prev => prev ? { ...prev, endPoint: pos } : null);
+          
+          // Check if we're hovering over an object
+          const targetObj = findObjectAtPoint(objects, pos);
+          setHoveredObjectId(targetObj?.id || null);
+          
+          // If hovering over an object, snap to its center
+          const endPoint = targetObj ? getAnchorPoint(targetObj, "center") : pos;
+          setDrawingConnector(prev => prev ? { ...prev, endPoint } : null);
+        } else {
+          setHoveredObjectId(null);
         }
       }}
       onMouseDown={handleStageMouseDown}
       onMouseUp={handleStageMouseUp}
       onClick={handleStageClick}
+      onContextMenu={handleStageContextMenu}
       onDragStart={() => {}}
       onDragEnd={handleStageDragEnd}
     >
@@ -606,7 +677,14 @@ export function Board({
               >
                 <Rect width={w} height={h} fill="transparent" listening />
                 {!isHovered ? (
-                  <Rect width={w} height={h} fill={obj.color} cornerRadius={4} stroke={selectedIds.includes(obj.id) ? "#333" : undefined} strokeWidth={selectedIds.includes(obj.id) ? 2 : 0} />
+                  <Rect 
+                    width={w} 
+                    height={h} 
+                    fill={obj.color} 
+                    cornerRadius={4} 
+                    stroke={selectedIds.includes(obj.id) ? "#333" : hoveredObjectId === obj.id && drawingConnector ? "#3b82f6" : undefined} 
+                    strokeWidth={selectedIds.includes(obj.id) ? 2 : hoveredObjectId === obj.id && drawingConnector ? 3 : 0} 
+                  />
                 ) : (
                   <Shape
                     sceneFunc={(ctx) => {
@@ -628,6 +706,10 @@ export function Board({
                       if (selectedIds.includes(obj.id)) {
                         ctx.strokeStyle = "#333";
                         ctx.lineWidth = 2;
+                        ctx.stroke();
+                      } else if (hoveredObjectId === obj.id && drawingConnector) {
+                        ctx.strokeStyle = "#3b82f6";
+                        ctx.lineWidth = 3;
                         ctx.stroke();
                       }
                     }}
@@ -911,16 +993,41 @@ export function Board({
               }
             }
             
-            const points = [startPt.x, startPt.y, endPt.x, endPt.y];
+            // Calculate path based on style
+            let points: number[];
+            const connectorStyle = connector.style || "straight";
+            
+            if (connectorStyle === "curved") {
+              points = calculateCurvedPath(startPt, endPt);
+            } else if (connectorStyle === "orthogonal") {
+              points = calculateOrthogonalPath(startPt, endPt);
+            } else {
+              points = [startPt.x, startPt.y, endPt.x, endPt.y];
+            }
+            
+            const isSelected = selectedIds.includes(obj.id);
             
             return (
-              <Group key={obj.id}>
+              <Group 
+                key={obj.id}
+                ref={(el) => {
+                  if (el) shapeRefs.current[obj.id] = el;
+                }}
+                onClick={(e) => {
+                  e.cancelBubble = true;
+                  onSelect([obj.id]);
+                }}
+                onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
+              >
                 <Line
                   points={points}
-                  stroke={connector.color || "#333"}
-                  strokeWidth={connector.strokeWidth || 2}
+                  stroke={isSelected ? "#1e40af" : (connector.color || "#333")}
+                  strokeWidth={isSelected ? 4 : (connector.strokeWidth || 2)}
                   lineCap="round"
                   lineJoin="round"
+                  hitStrokeWidth={10}
+                  tension={connectorStyle === "curved" ? 0.5 : 0}
+                  bezier={connectorStyle === "curved"}
                 />
                 {connector.arrowEnd && (
                   <Line
@@ -932,8 +1039,8 @@ export function Board({
                       endPt.x - 10 * Math.cos(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) + Math.PI / 6),
                       endPt.y - 10 * Math.sin(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) + Math.PI / 6),
                     ]}
-                    stroke={connector.color || "#333"}
-                    strokeWidth={connector.strokeWidth || 2}
+                    stroke={isSelected ? "#1e40af" : (connector.color || "#333")}
+                    strokeWidth={isSelected ? 4 : (connector.strokeWidth || 2)}
                     lineCap="round"
                     lineJoin="round"
                   />
@@ -1009,8 +1116,8 @@ export function Board({
       <div
         style={{
           position: "fixed",
-          left: contextMenu.x + position.x,
-          top: contextMenu.y + position.y,
+          left: contextMenu.x,
+          top: contextMenu.y,
           background: "white",
           border: "1px solid #ddd",
           borderRadius: 4,
@@ -1020,6 +1127,30 @@ export function Board({
         }}
         onMouseLeave={() => setContextMenu(null)}
       >
+        <div style={{ padding: "4px 8px", fontSize: 12, color: "#666", borderBottom: "1px solid #eee" }}>
+          Connector Style
+        </div>
+        <div style={{ display: "flex", gap: 4, padding: 4 }}>
+          {(["straight", "curved", "orthogonal"] as const).map(style => (
+            <button
+              key={style}
+              style={{
+                flex: 1,
+                padding: "4px 8px",
+                background: connectorStyle === style ? "#3b82f6" : "#f3f4f6",
+                color: connectorStyle === style ? "white" : "#333",
+                border: "none",
+                borderRadius: 2,
+                cursor: "pointer",
+                fontSize: 11,
+                textTransform: "capitalize",
+              }}
+              onClick={() => setConnectorStyle(style)}
+            >
+              {style}
+            </button>
+          ))}
+        </div>
         <button
           style={{
             display: "block",
@@ -1030,6 +1161,7 @@ export function Board({
             cursor: "pointer",
             textAlign: "left",
             fontSize: 14,
+            borderTop: "1px solid #eee",
           }}
           onMouseEnter={(e) => e.currentTarget.style.background = "#f3f4f6"}
           onMouseLeave={(e) => e.currentTarget.style.background = "white"}

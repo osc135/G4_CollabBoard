@@ -44,6 +44,7 @@ export const connectorSchema = z.object({
   endPoint: z.object({ x: z.number(), y: z.number() }),   // absolute position if not connected
   startAnchor: z.enum(["top", "right", "bottom", "left", "center"]).optional(), // which side of the object
   endAnchor: z.enum(["top", "right", "bottom", "left", "center"]).optional(),
+  style: z.enum(["straight", "curved", "orthogonal"]).optional(), // connector style
   color: z.string(),
   strokeWidth: z.number().optional(),
   arrowStart: z.boolean().optional(),

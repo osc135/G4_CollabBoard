@@ -46,9 +46,21 @@ export function applyUpdate(state: BoardState, payload: unknown): BoardState {
 
 /**
  * Apply a delete operation. No-op if objectId not in state.
+ * Also removes any connectors that were attached to the deleted object.
  */
 export function applyDelete(state: BoardState, objectId: string): BoardState {
-  const objects = state.objects.filter((o) => o.id !== objectId);
+  // Filter out the object itself and any connectors attached to it
+  const objects = state.objects.filter((o) => {
+    if (o.id === objectId) return false;
+    // Also remove connectors that are attached to this object
+    if (o.type === "connector") {
+      const connector = o as any;
+      if (connector.startObjectId === objectId || connector.endObjectId === objectId) {
+        return false;
+      }
+    }
+    return true;
+  });
   if (objects.length === state.objects.length) return state;
   return { objects };
 }
