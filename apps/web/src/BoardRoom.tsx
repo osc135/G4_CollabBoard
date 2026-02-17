@@ -24,6 +24,7 @@ export function BoardRoom() {
     roomId // Pass the room ID to the Supabase hook
   );
 
+
   // Generate or fetch invite code
   useEffect(() => {
     async function fetchOrCreateInviteCode() {

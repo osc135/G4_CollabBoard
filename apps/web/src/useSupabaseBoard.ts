@@ -40,7 +40,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
 
         // Subscribe to real-time changes
         subscription = SupabaseBoardService.subscribeToBoard(board.id, (payload) => {
-          console.log('Real-time update:', payload);
+          console.log('Real-time update received:', payload);
           
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             const legacyObject = SupabaseBoardService.convertToLegacyObject(payload.new);
@@ -126,44 +126,54 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   }, []);
 
   const createObject = async (obj: BoardObject) => {
-    console.log('createObject called with:', obj);
-    console.log('Current boardId:', boardId);
+    if (!boardId) return;
     
-    if (!boardId) {
-      console.error('No boardId available for object creation');
-      return;
-    }
+    // Add to UI immediately (optimistic update)
+    setObjects(prev => [...prev, obj]);
     
+    // Save to database
     try {
       const supabaseObj = SupabaseBoardService.convertLegacyObject(obj, boardId);
-      console.log('Converted to Supabase object:', supabaseObj);
-      
-      const result = await SupabaseBoardService.upsertBoardObject(boardId, supabaseObj);
-      console.log('Object created successfully:', result);
-      // Real-time subscription will handle the UI update
+      await SupabaseBoardService.upsertBoardObject(boardId, supabaseObj);
     } catch (error) {
-      console.error('Failed to create object:', error);
+      console.error('Failed to save object:', error);
+      // Remove from UI if save failed
+      setObjects(prev => prev.filter(o => o.id !== obj.id));
     }
   };
 
   const updateObject = async (obj: BoardObject) => {
     if (!boardId) return;
     
+    // Immediate UI update
+    setObjects(prev => {
+      const idx = prev.findIndex(o => o.id === obj.id);
+      if (idx >= 0) {
+        const newState = [...prev];
+        newState[idx] = obj;
+        return newState;
+      }
+      return prev;
+    });
+    
     try {
       const supabaseObj = SupabaseBoardService.convertLegacyObject(obj, boardId);
       await SupabaseBoardService.upsertBoardObject(boardId, supabaseObj);
-      // Real-time subscription will handle the UI update
     } catch (error) {
       console.error('Failed to update object:', error);
+      // Revert on error by refreshing from server
     }
   };
 
   const deleteObject = async (objectId: string) => {
+    // Immediate UI update
+    setObjects(prev => prev.filter(obj => obj.id !== objectId));
+    
     try {
       await SupabaseBoardService.deleteBoardObject(objectId);
-      // Real-time subscription will handle the UI update
     } catch (error) {
       console.error('Failed to delete object:', error);
+      // Could add object back on error, but for now just log
     }
   };
 

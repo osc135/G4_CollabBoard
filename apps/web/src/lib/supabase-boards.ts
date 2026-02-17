@@ -47,17 +47,34 @@ export class SupabaseBoardService {
   
   // Create a new board
   static async createBoard(name: string, roomId: string): Promise<Board> {
+    const user = await supabase.auth.getUser();
+    const userId = user.data.user?.id;
+    
+    if (!userId) {
+      throw new Error('User not authenticated');
+    }
+    
     const { data, error } = await supabase
       .from('boards')
       .insert({
         name,
         room_id: roomId,
-        created_by: (await supabase.auth.getUser()).data.user?.id,
+        created_by: userId,
       })
       .select()
       .single();
     
     if (error) throw error;
+    
+    // Ensure user is added as owner collaborator (in case trigger doesn't work)
+    await supabase
+      .from('board_collaborators')
+      .insert({
+        board_id: data.id,
+        user_id: userId,
+        role: 'owner'
+      });
+    
     return data;
   }
   
@@ -72,6 +89,31 @@ export class SupabaseBoardService {
     if (boardError) {
       if (boardError.code === 'PGRST116') return null; // Not found
       throw boardError;
+    }
+    
+    // Ensure current user is a collaborator on this board
+    const user = await supabase.auth.getUser();
+    const userId = user.data.user?.id;
+    
+    if (userId) {
+      // Check if user is already a collaborator
+      const { data: collaborator } = await supabase
+        .from('board_collaborators')
+        .select('*')
+        .eq('board_id', board.id)
+        .eq('user_id', userId)
+        .single();
+      
+      // If not a collaborator, add them as an editor (for existing boards)
+      if (!collaborator) {
+        await supabase
+          .from('board_collaborators')
+          .insert({
+            board_id: board.id,
+            user_id: userId,
+            role: 'editor'
+          });
+      }
     }
     
     const { data: objects, error: objectsError } = await supabase
