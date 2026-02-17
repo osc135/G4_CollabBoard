@@ -23,18 +23,24 @@ export function applyCreate(state: BoardState, payload: unknown): BoardState {
 }
 
 /**
- * Apply an update operation. Last write wins. No-op if objectId not found.
+ * Apply an update operation. Last write wins. Merges payload into existing object to preserve fields like rotation.
+ * No-op if objectId not found.
  */
 export function applyUpdate(state: BoardState, payload: unknown): BoardState {
   const parsed = safeParseBoardObject(payload);
   if (!parsed.success) {
     throw new Error(`Invalid payload: ${parsed.error.message}`);
   }
-  const obj = parsed.data;
-  const idx = state.objects.findIndex((o) => o.id === obj.id);
+  const update = parsed.data;
+  const idx = state.objects.findIndex((o) => o.id === update.id);
   if (idx < 0) return state;
   const objects = [...state.objects];
-  objects[idx] = obj;
+  const existing = objects[idx];
+  const merged = { ...existing } as Record<string, unknown>;
+  for (const [k, v] of Object.entries(update)) {
+    if (v !== undefined) (merged as Record<string, unknown>)[k] = v;
+  }
+  objects[idx] = merged as BoardObject;
   return { objects };
 }
 

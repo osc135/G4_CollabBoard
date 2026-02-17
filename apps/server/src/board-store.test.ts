@@ -75,7 +75,7 @@ describe("board-store", () => {
       const updated = { ...validSticky, text: "Updated" };
       const state = addObject(BOARD_A, updated);
       expect(state.objects).toHaveLength(1);
-      expect(state.objects[0].text).toBe("Updated");
+      expect((state.objects[0] as { text?: string }).text).toBe("Updated");
     });
   });
 
@@ -84,7 +84,7 @@ describe("board-store", () => {
       addObject(BOARD_A, validSticky);
       const updated = { ...validSticky, text: "New text" };
       const state = updateObject(BOARD_A, updated);
-      expect(state.objects[0].text).toBe("New text");
+      expect((state.objects[0] as { text?: string }).text).toBe("New text");
     });
 
     it("no-op when objectId does not exist", () => {

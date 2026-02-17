@@ -1,10 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Stage, Layer, Rect, Circle, Line, Text, Group, Shape } from "react-konva";
+import { Stage, Layer, Rect, Circle, Line, Text, Group, Shape, Transformer } from "react-konva";
 import Konva from "konva";
 import type { BoardObject, Cursor } from "@collabboard/shared";
 
-export type Tool = "pan" | "sticky" | "textbox";
+export type Tool = "pan" | "sticky" | "textbox" | "rectangle" | "circle" | "line";
 
 interface BoardProps {
   objects: BoardObject[];
@@ -12,6 +12,7 @@ interface BoardProps {
   tool: Tool;
   selectedIds: string[];
   selectedStickyColor?: string;
+  selectedShapeColor?: string;
   onSelect: (ids: string[]) => void;
   onObjectCreate: (obj: BoardObject) => void;
   onObjectUpdate: (obj: BoardObject) => void;
@@ -40,6 +41,7 @@ export function Board({
   onCursorMove,
   stageRef,
   selectedStickyColor,
+  selectedShapeColor = "#3b82f6",
 }: BoardProps) {
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
@@ -52,6 +54,8 @@ export function Board({
   const [hoveredStickyId, setHoveredStickyId] = useState<string | null>(null);
   const [selectionBox, setSelectionBox] = useState<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null);
   const ignoreNextClickRef = useRef(false);
+  const shapeRefs = useRef<Record<string, Konva.Group>>({});
+  const trRef = useRef<Konva.Transformer | null>(null);
 
   const handleStageDragEnd = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
     const stage = e.target.getStage();
@@ -72,6 +76,29 @@ export function Board({
       return () => clearTimeout(t);
     }
   }, [editingTextboxId]);
+
+  useLayoutEffect(() => {
+    const objIds = new Set(objects.map((o) => o.id));
+    Object.keys(shapeRefs.current).forEach((id) => {
+      if (!objIds.has(id)) delete shapeRefs.current[id];
+    });
+  }, [objects]);
+
+  useLayoutEffect(() => {
+    const tr = trRef.current;
+    if (!tr || selectedIds.length === 0) return;
+    const attach = () => {
+      const nodes = selectedIds.map((id) => shapeRefs.current[id]).filter(Boolean) as Konva.Node[];
+      if (nodes.length > 0) {
+        tr.nodes(nodes);
+        tr.forceUpdate();
+        tr.getLayer()?.batchDraw();
+      }
+    };
+    attach();
+    const rafId = requestAnimationFrame(attach);
+    return () => cancelAnimationFrame(rafId);
+  }, [selectedIds, objects]);
 
   const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
@@ -143,12 +170,27 @@ export function Board({
       const ids: string[] = [];
       objects.forEach((obj) => {
         if (obj.type === "sticky" || obj.type === "textbox") {
-          const w = (obj.type === "sticky" ? obj.width : (obj.width ?? 200));
-          const h = (obj.type === "sticky" ? obj.height : (obj.height ?? 80));
+          const w = obj.type === "sticky" ? obj.width : (obj.width ?? 200);
+          const h = obj.type === "sticky" ? obj.height : (obj.height ?? 80);
           const ox = obj.x;
           const oy = obj.y;
-          const intersects =
-            !(ox + w < minX || ox > maxX || oy + h < minY || oy > maxY);
+          const intersects = !(ox + w < minX || ox > maxX || oy + h < minY || oy > maxY);
+          if (intersects) ids.push(obj.id);
+        } else if (obj.type === "rectangle") {
+          const intersects = !(obj.x + obj.width < minX || obj.x > maxX || obj.y + obj.height < minY || obj.y > maxY);
+          if (intersects) ids.push(obj.id);
+        } else if (obj.type === "circle") {
+          const cx = obj.x + obj.width / 2;
+          const cy = obj.y + obj.height / 2;
+          const r = Math.min(obj.width, obj.height) / 2;
+          const boxIntersects = !(cx - r > maxX || cx + r < minX || cy - r > maxY || cy + r < minY);
+          if (boxIntersects) ids.push(obj.id);
+        } else if (obj.type === "line") {
+          const lx = Math.min(obj.x, obj.x + obj.width);
+          const rx = Math.max(obj.x, obj.x + obj.width);
+          const ty = Math.min(obj.y, obj.y + obj.height);
+          const by = Math.max(obj.y, obj.y + obj.height);
+          const intersects = !(rx < minX || lx > maxX || by < minY || ty > maxY);
           if (intersects) ids.push(obj.id);
         }
       });
@@ -180,6 +222,7 @@ export function Board({
           height: 100,
           text: "New note",
           color: selectedStickyColor ?? getRandomStickyColor(),
+          rotation: 0,
         });
       } else if (tool === "textbox") {
         onObjectCreate({
@@ -191,10 +234,44 @@ export function Board({
           height: 80,
           text: "",
           autoSize: true,
+          rotation: 0,
+        });
+      } else if (tool === "rectangle") {
+        onObjectCreate({
+          id: `rect-${Date.now()}`,
+          type: "rectangle",
+          x: pos.x,
+          y: pos.y,
+          width: 120,
+          height: 80,
+          color: selectedShapeColor,
+          rotation: 0,
+        });
+      } else if (tool === "circle") {
+        onObjectCreate({
+          id: `circle-${Date.now()}`,
+          type: "circle",
+          x: pos.x,
+          y: pos.y,
+          width: 80,
+          height: 80,
+          color: selectedShapeColor,
+          rotation: 0,
+        });
+      } else if (tool === "line") {
+        onObjectCreate({
+          id: `line-${Date.now()}`,
+          type: "line",
+          x: pos.x,
+          y: pos.y,
+          width: 100,
+          height: 60,
+          color: selectedShapeColor,
+          rotation: 0,
         });
       }
     },
-    [tool, onSelect, onObjectCreate, selectedStickyColor]
+    [tool, onSelect, onObjectCreate, selectedStickyColor, selectedShapeColor]
   );
 
   const stickyObj = editingStickyId ? objects.find((o): o is Extract<BoardObject, { type: "sticky" }> => o.type === "sticky" && o.id === editingStickyId) : null;
@@ -387,14 +464,21 @@ export function Board({
           if (obj.type === "sticky") {
             const w = obj.width;
             const h = obj.height;
+            const rot = obj.rotation ?? 0;
             const isHovered = hoveredStickyId === obj.id;
             return (
               <Group
                 key={obj.id}
-                x={obj.x}
-                y={obj.y}
+                ref={(el) => {
+                  if (el) shapeRefs.current[obj.id] = el;
+                }}
+                x={obj.x + w / 2}
+                y={obj.y + h / 2}
+                offsetX={w / 2}
+                offsetY={h / 2}
+                rotation={rot}
                 draggable
-                onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x(), y: e.target.y() })}
+                onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x() - w / 2, y: e.target.y() - h / 2, rotation: e.target.rotation() })}
                 onClick={(e) => {
                   e.cancelBubble = true;
                   onSelect([obj.id]);
@@ -489,17 +573,26 @@ export function Board({
           if (obj.type === "textbox") {
             const w = obj.width ?? 200;
             const h = obj.height ?? 80;
+            const rot = obj.rotation ?? 0;
             const isSelected = selectedIds.includes(obj.id);
             return (
               <Group
                 key={obj.id}
-                x={obj.x}
-                y={obj.y}
+                ref={(el) => {
+                  if (el) shapeRefs.current[obj.id] = el;
+                }}
+                x={obj.x + w / 2}
+                y={obj.y + h / 2}
+                offsetX={w / 2}
+                offsetY={h / 2}
+                rotation={rot}
                 draggable
-                onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x(), y: e.target.y() })}
+                onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x() - w / 2, y: e.target.y() - h / 2, rotation: e.target.rotation() })}
               >
                 <Rect
                   name="textbox-body"
+                  x={-w / 2}
+                  y={-h / 2}
                   width={w}
                   height={h}
                   fill="#fff"
@@ -522,8 +615,8 @@ export function Board({
                     text={obj.text || " "}
                     width={w - 16}
                     height={h - 16}
-                    x={8}
-                    y={8}
+                    x={-w / 2 + 8}
+                    y={-h / 2 + 8}
                     fontSize={14}
                     wrap="word"
                     listening={false}
@@ -533,8 +626,8 @@ export function Board({
                 {isSelected && (
                   <Rect
                     name="textbox-handle"
-                    x={w - 10}
-                    y={h - 10}
+                    x={w / 2 - 10}
+                    y={h / 2 - 10}
                     width={10}
                     height={10}
                     fill="#333"
@@ -548,8 +641,8 @@ export function Board({
                       const handle = e.target;
                       const group = handle.getParent();
                       if (!group) return;
-                      const newW = Math.max(60, handle.x() + 10);
-                      const newH = Math.max(24, handle.y() + 10);
+                      const newW = Math.max(60, handle.x() + w / 2 + 10);
+                      const newH = Math.max(24, handle.y() + h / 2 + 10);
                       const body = group.find(".textbox-body")[0];
                       const textNode = group.find(".textbox-text")[0];
                       if (body) {
@@ -564,74 +657,132 @@ export function Board({
                     onDragEnd={(e) => {
                       e.cancelBubble = true;
                       const node = e.target;
-                      const newW = Math.max(60, node.x() + 10);
-                      const newH = Math.max(24, node.y() + 10);
-                      onObjectUpdate({ ...obj, width: newW, height: newH, autoSize: false });
-                      node.position({ x: newW - 10, y: newH - 10 });
+                      const newW = Math.max(60, node.x() + w / 2 + 10);
+                      const newH = Math.max(24, node.y() + h / 2 + 10);
+                      onObjectUpdate({ ...obj, width: newW, height: newH, autoSize: false, rotation: e.target.getParent()?.rotation() || 0 });
+                      node.position({ x: newW / 2 - 10, y: newH / 2 - 10 });
                     }}
-                    dragBoundFunc={(pos) => ({ x: Math.max(0, pos.x), y: Math.max(0, pos.y) })}
+                    dragBoundFunc={(pos) => ({ x: Math.max(-w / 2 + 10, pos.x), y: Math.max(-h / 2 + 10, pos.y) })}
                   />
                 )}
               </Group>
             );
           }
           if (obj.type === "rectangle") {
+            const w = obj.width;
+            const h = obj.height;
+            const rot = obj.rotation ?? 0;
             return (
-              <Rect
+              <Group
                 key={obj.id}
-                x={obj.x}
-                y={obj.y}
-                width={obj.width}
-                height={obj.height}
-                fill={obj.color}
+                ref={(el) => {
+                  if (el) shapeRefs.current[obj.id] = el;
+                }}
+                x={obj.x + w / 2}
+                y={obj.y + h / 2}
+                offsetX={w / 2}
+                offsetY={h / 2}
+                rotation={rot}
                 draggable
-                onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x(), y: e.target.y() })}
+                onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x() - w / 2, y: e.target.y() - h / 2, rotation: e.target.rotation() })}
                 onClick={(e) => {
                   e.cancelBubble = true;
                   onSelect([obj.id]);
                 }}
-                stroke={selectedIds.includes(obj.id) ? "#333" : undefined}
-                strokeWidth={selectedIds.includes(obj.id) ? 2 : 0}
-              />
+              >
+                <Rect
+                  x={-w / 2}
+                  y={-h / 2}
+                  width={w}
+                  height={h}
+                  fill={obj.color}
+                  stroke={selectedIds.includes(obj.id) ? "#333" : undefined}
+                  strokeWidth={selectedIds.includes(obj.id) ? 2 : 0}
+                />
+              </Group>
             );
           }
           if (obj.type === "circle") {
+            const w = obj.width;
+            const h = obj.height;
+            const r = Math.min(w, h) / 2;
+            const rot = obj.rotation ?? 0;
             return (
-              <Circle
+              <Group
                 key={obj.id}
-                x={obj.x + obj.width / 2}
-                y={obj.y + obj.height / 2}
-                radius={Math.min(obj.width, obj.height) / 2}
-                fill={obj.color}
+                ref={(el) => {
+                  if (el) shapeRefs.current[obj.id] = el;
+                }}
+                x={obj.x + w / 2}
+                y={obj.y + h / 2}
+                offsetX={w / 2}
+                offsetY={h / 2}
+                rotation={rot}
                 draggable
-                onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x() - obj.width / 2, y: e.target.y() - obj.height / 2 })}
+                onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x() - w / 2, y: e.target.y() - h / 2, rotation: e.target.rotation() })}
                 onClick={(e) => {
                   e.cancelBubble = true;
                   onSelect([obj.id]);
                 }}
-              />
+              >
+                <Circle x={-w / 2 + r} y={-h / 2 + r} radius={r} fill={obj.color} stroke={selectedIds.includes(obj.id) ? "#333" : undefined} strokeWidth={selectedIds.includes(obj.id) ? 2 : 0} />
+              </Group>
             );
           }
           if (obj.type === "line") {
+            const w = obj.width;
+            const h = obj.height;
+            const rot = obj.rotation ?? 0;
+            const isSelected = selectedIds.includes(obj.id);
+            const lw = Math.abs(w);
+            const lh = Math.abs(h);
             return (
-              <Line
+              <Group
                 key={obj.id}
-                x={obj.x}
-                y={obj.y}
-                points={[0, 0, obj.width, obj.height]}
-                stroke={obj.color}
-                strokeWidth={2}
+                ref={(el) => {
+                  if (el) shapeRefs.current[obj.id] = el;
+                }}
+                x={obj.x + w / 2}
+                y={obj.y + h / 2}
+                offsetX={lw / 2}
+                offsetY={lh / 2}
+                rotation={rot}
                 draggable
-                onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x(), y: e.target.y() })}
+                onDragEnd={(e) => onObjectUpdate({ ...obj, x: e.target.x() - w / 2, y: e.target.y() - h / 2, rotation: e.target.rotation() })}
                 onClick={(e) => {
                   e.cancelBubble = true;
                   onSelect([obj.id]);
                 }}
-              />
+              >
+                <Line x={-w / 2} y={-h / 2} points={[0, 0, w, h]} stroke={isSelected ? "#333" : obj.color} strokeWidth={isSelected ? 4 : 2} lineCap="round" />
+              </Group>
             );
           }
           return null;
         })}
+        {selectedIds.length > 0 && (
+          <Transformer
+            ref={trRef}
+            resizeEnabled={false}
+            rotateEnabled
+            rotateAnchorOffset={30}
+            onTransformEnd={() => {
+              const tr = trRef.current;
+              if (!tr) return;
+              const nodes = tr.nodes();
+              nodes.forEach((node) => {
+                const id = Object.keys(shapeRefs.current).find((k) => shapeRefs.current[k] === node);
+                if (!id) return;
+                const obj = objects.find((o) => o.id === id);
+                if (!obj) return;
+                const w = obj.type === "sticky" ? obj.width : obj.type === "textbox" ? (obj.width ?? 200) : obj.type === "rectangle" || obj.type === "circle" || obj.type === "line" ? obj.width : 0;
+                const h = obj.type === "sticky" ? obj.height : obj.type === "textbox" ? (obj.height ?? 80) : obj.type === "rectangle" || obj.type === "circle" || obj.type === "line" ? obj.height : 0;
+                const newRotation = node.rotation();
+                onObjectUpdate({ ...obj, x: node.x() - w / 2, y: node.y() - h / 2, rotation: newRotation } as BoardObject);
+              });
+            }}
+          />
+        )}
       </Layer>
       <Layer listening={false}>
         {Object.entries(cursors).map(([id, cur], i) => {

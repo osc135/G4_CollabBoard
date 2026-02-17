@@ -20,6 +20,15 @@ export function useSocket(userId: string, displayName: string) {
     socket.on("connect", () => setConnected(true));
     socket.on("disconnect", () => setConnected(false));
     socket.on("board:state", (state: { objects: BoardObject[] }) => setObjects(state.objects || []));
+    socket.on("object:updated", (obj: BoardObject) => {
+      setObjects((prev) => {
+        const idx = prev.findIndex((o) => o.id === obj.id);
+        if (idx < 0) return prev;
+        const next = [...prev];
+        next[idx] = { ...next[idx], ...obj };
+        return next;
+      });
+    });
     socket.on("cursors:state", (list: Cursor[]) => {
       const map: Record<string, Cursor> = {};
       list.forEach((c) => (map[c.id] = c));
@@ -44,7 +53,7 @@ export function useSocket(userId: string, displayName: string) {
     });
 
     return () => {
-      socket.off("connect").off("disconnect").off("board:state").off("cursors:state").off("presence:state");
+      socket.off("connect").off("disconnect").off("board:state").off("object:updated").off("cursors:state").off("presence:state");
       socket.off("cursor:moved").off("cursor:left").off("presence:joined");
       socket.disconnect();
       socketRef.current = null;
@@ -52,8 +61,14 @@ export function useSocket(userId: string, displayName: string) {
   }, [userId, displayName]);
 
   const emitCursor = (x: number, y: number) => socketRef.current?.emit("cursor:move", { x, y });
-  const createObject = (obj: BoardObject) => socketRef.current?.emit("object:create", obj);
-  const updateObject = (obj: BoardObject) => socketRef.current?.emit("object:update", obj);
+  const createObject = (obj: BoardObject) => {
+    setObjects((prev) => [...prev, obj]);
+    socketRef.current?.emit("object:create", obj);
+  };
+  const updateObject = (obj: BoardObject) => {
+    setObjects((prev) => prev.map((o) => (o.id === obj.id ? { ...o, ...obj } : o)));
+    socketRef.current?.emit("object:update", obj);
+  };
   const deleteObject = (id: string) => socketRef.current?.emit("object:delete", id);
 
   return {

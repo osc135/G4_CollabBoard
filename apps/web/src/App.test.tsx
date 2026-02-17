@@ -2,7 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import App from "./App";
 
-vi.mock("./Board", () => ({ Board: () => null }));
+vi.mock("./Board", () => ({
+  Board: () => null,
+  STICKY_COLORS: ["#fef08a"],
+  getRandomStickyColor: () => "#fef08a",
+}));
 vi.mock("./contexts/AuthContext", () => ({
   useAuth: () => ({
     session: {},
@@ -36,10 +40,11 @@ describe("App", () => {
     expect(screen.getByTestId("connection-status")).toHaveTextContent("Connected");
   });
 
-  it("renders tool buttons Pan and Sticky", () => {
+  it("renders tool buttons Pan, Sticky, and Textbox", () => {
     render(<App />);
     expect(screen.getByTestId("tool-pan")).toHaveTextContent("Pan");
     expect(screen.getByTestId("tool-sticky")).toHaveTextContent("Sticky");
+    expect(screen.getByTestId("tool-textbox")).toHaveTextContent("Textbox");
   });
 
   it("shows Online count and presence names", () => {
