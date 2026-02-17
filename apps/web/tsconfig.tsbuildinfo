@@ -1,1 +1,1 @@
-{"root":["./src/app.test.tsx","./src/app.tsx","./src/board.tsx","./src/loginscreen.tsx","./src/main.tsx","./src/usesocket.test.tsx","./src/usesocket.ts","./src/vite-env.d.ts","./src/contexts/authcontext.tsx","./src/lib/supabase.ts","./src/test/setup.ts"],"errors":true,"version":"5.9.3"}
+{"root":["./src/app.test.tsx","./src/app.tsx","./src/board.tsx","./src/loginscreen.tsx","./src/main.tsx","./src/usesocket.test.tsx","./src/usesocket.ts","./src/vite-env.d.ts","./src/contexts/authcontext.tsx","./src/lib/supabase.ts","./src/test/setup.ts"],"version":"5.9.3"}

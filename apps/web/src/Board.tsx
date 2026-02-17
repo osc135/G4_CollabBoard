@@ -33,6 +33,11 @@ export function getRandomStickyColor() {
 
 // Helper function to get anchor point on an object
 function getAnchorPoint(obj: BoardObject, anchor: "top" | "right" | "bottom" | "left" | "center"): { x: number; y: number } {
+  // Connectors don't have x/y properties, return a default
+  if (obj.type === "connector") {
+    return { x: 0, y: 0 };
+  }
+  
   const width = obj.type === "sticky" ? obj.width : 
                 obj.type === "textbox" ? (obj.width ?? 200) : 
                 obj.type === "rectangle" || obj.type === "circle" ? obj.width : 
@@ -82,6 +87,11 @@ function getBestAnchor(fromObj: BoardObject, toObj: BoardObject): { startAnchor:
 
 // Get the best connection point on object perimeter - allows for any point, not just 4 anchors
 function getBestPerimeterPoint(obj: BoardObject, targetPoint: { x: number; y: number }): { x: number; y: number } {
+  // Connectors don't have x/y properties, return target point as fallback
+  if (obj.type === "connector") {
+    return targetPoint;
+  }
+  
   const width = obj.type === "sticky" ? obj.width : 
                 obj.type === "textbox" ? (obj.width ?? 200) : 
                 obj.type === "rectangle" || obj.type === "circle" ? obj.width : 
@@ -1142,11 +1152,13 @@ export function Board({
             let endObj = connector.endObjectId ? objects.find(o => o.id === connector.endObjectId) : null;
             
             // If an object is being dragged, use its temporary position
-            if (draggingObject) {
-              if (startObj && startObj.id === draggingObject.id) {
+            if (draggingObject && startObj && startObj.type !== "connector") {
+              if (startObj.id === draggingObject.id) {
                 startObj = { ...startObj, x: draggingObject.x, y: draggingObject.y };
               }
-              if (endObj && endObj.id === draggingObject.id) {
+            }
+            if (draggingObject && endObj && endObj.type !== "connector") {
+              if (endObj.id === draggingObject.id) {
                 endObj = { ...endObj, x: draggingObject.x, y: draggingObject.y };
               }
             }
