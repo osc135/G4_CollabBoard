@@ -10,7 +10,7 @@ export interface Board {
   is_public: boolean;
 }
 
-export interface BoardObject {
+export interface SupabaseBoardObject {
   id: string;
   board_id: string;
   type: 'sticky' | 'rectangle' | 'circle' | 'textbox' | 'connector';
@@ -52,7 +52,7 @@ export interface BoardCollaborator {
 
 // Helper types for API responses
 export interface BoardWithObjects extends Board {
-  objects: BoardObject[];
+  objects: SupabaseBoardObject[];
 }
 
 export interface BoardSummary extends Board {

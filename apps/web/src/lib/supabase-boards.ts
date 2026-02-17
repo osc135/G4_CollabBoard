@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { Board, BoardObject, BoardWithObjects, BoardSummary } from '@collabboard/shared/supabase-types';
+import type { Board, SupabaseBoardObject, BoardWithObjects, BoardSummary } from '@collabboard/shared/supabase-types';
 
 export class SupabaseBoardService {
   
@@ -63,7 +63,7 @@ export class SupabaseBoardService {
   }
   
   // Add or update a board object
-  static async upsertBoardObject(boardId: string, object: Omit<BoardObject, 'board_id' | 'created_at' | 'updated_at'>): Promise<BoardObject> {
+  static async upsertBoardObject(boardId: string, object: Omit<SupabaseBoardObject, 'board_id' | 'created_at' | 'updated_at'>): Promise<SupabaseBoardObject> {
     const { data, error } = await supabase
       .from('board_objects')
       .upsert({
@@ -99,7 +99,7 @@ export class SupabaseBoardService {
   }
   
   // Get board objects for preview (limit to reduce data transfer)
-  static async getBoardPreview(roomId: string): Promise<BoardObject[]> {
+  static async getBoardPreview(roomId: string): Promise<SupabaseBoardObject[]> {
     const { data: board, error: boardError } = await supabase
       .from('boards')
       .select('id')
@@ -120,7 +120,7 @@ export class SupabaseBoardService {
   }
   
   // Convert legacy board object format to Supabase format
-  static convertLegacyObject(legacyObj: any, boardId: string): Omit<BoardObject, 'board_id' | 'created_at' | 'updated_at'> {
+  static convertLegacyObject(legacyObj: any, boardId: string): Omit<SupabaseBoardObject, 'board_id' | 'created_at' | 'updated_at'> {
     const base = {
       id: legacyObj.id,
       type: legacyObj.type,
@@ -154,7 +154,7 @@ export class SupabaseBoardService {
   }
   
   // Convert Supabase object to legacy format for compatibility
-  static convertToLegacyObject(supabaseObj: BoardObject): any {
+  static convertToLegacyObject(supabaseObj: SupabaseBoardObject): any {
     if (supabaseObj.type === 'connector') {
       return {
         id: supabaseObj.id,
