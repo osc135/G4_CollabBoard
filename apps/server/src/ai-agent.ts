@@ -86,7 +86,12 @@ export class AIBoardAgent {
     const processed = new Set<string>();
     const clusterDistance = 200; // Objects within 200px are considered clustered
 
-    objects.forEach(obj => {
+    // Filter only objects that have x,y coordinates
+    const positionedObjects = objects.filter(obj => 
+      'x' in obj && 'y' in obj
+    );
+
+    positionedObjects.forEach(obj => {
       if (processed.has(obj.id)) return;
 
       const cluster = {
@@ -94,12 +99,12 @@ export class AIBoardAgent {
         objects: [obj]
       };
 
-      objects.forEach(other => {
+      positionedObjects.forEach(other => {
         if (other.id === obj.id || processed.has(other.id)) return;
         
         const distance = Math.sqrt(
           Math.pow(other.x - obj.x, 2) + 
-          Math.pow((other.y ?? 0) - (obj.y ?? 0), 2)
+          Math.pow(other.y - obj.y, 2)
         );
 
         if (distance < clusterDistance) {
@@ -139,16 +144,21 @@ export class AIBoardAgent {
   }
 
   private calculateAverageDistance(objects: BoardObject[]): number {
-    if (objects.length < 2) return 0;
+    // Filter only objects that have x,y coordinates
+    const positionedObjects = objects.filter(obj => 
+      'x' in obj && 'y' in obj
+    );
+    
+    if (positionedObjects.length < 2) return 0;
 
     let totalDistance = 0;
     let count = 0;
 
-    for (let i = 0; i < objects.length; i++) {
-      for (let j = i + 1; j < objects.length; j++) {
+    for (let i = 0; i < positionedObjects.length; i++) {
+      for (let j = i + 1; j < positionedObjects.length; j++) {
         const distance = Math.sqrt(
-          Math.pow(objects[j].x - objects[i].x, 2) + 
-          Math.pow((objects[j].y ?? 0) - (objects[i].y ?? 0), 2)
+          Math.pow(positionedObjects[j].x - positionedObjects[i].x, 2) + 
+          Math.pow(positionedObjects[j].y - positionedObjects[i].y, 2)
         );
         totalDistance += distance;
         count++;
@@ -169,7 +179,7 @@ export class AIBoardAgent {
       const colorGroups = new Map<string, BoardObject[]>();
       
       objects.forEach(obj => {
-        if (obj.type === 'sticky' && obj.color) {
+        if (obj.type === 'sticky' && 'color' in obj && obj.color) {
           const group = colorGroups.get(obj.color) || [];
           group.push(obj);
           colorGroups.set(obj.color, group);
@@ -180,22 +190,24 @@ export class AIBoardAgent {
       colorGroups.forEach(group => {
         group.forEach((obj, index) => {
           const idx = organized.findIndex(o => o.id === obj.id);
-          if (idx >= 0) {
-            organized[idx] = {
-              ...organized[idx],
-              x: xOffset + (index % 3) * 250,
-              y: 100 + Math.floor(index / 3) * 150
-            };
+          if (idx >= 0 && 'x' in organized[idx] && 'y' in organized[idx]) {
+            const organizedObj = organized[idx] as any;
+            organizedObj.x = xOffset + (index % 3) * 250;
+            organizedObj.y = 100 + Math.floor(index / 3) * 150;
           }
         });
         xOffset += 800;
       });
     } else if (strategy === 'grid') {
-      // Arrange in grid
-      const gridSize = Math.ceil(Math.sqrt(objects.length));
-      organized.forEach((obj, index) => {
-        obj.x = 100 + (index % gridSize) * 250;
-        obj.y = 100 + Math.floor(index / gridSize) * 150;
+      // Arrange in grid - only positioned objects
+      const positionedObjects = organized.filter(obj => 'x' in obj && 'y' in obj);
+      const gridSize = Math.ceil(Math.sqrt(positionedObjects.length));
+      
+      positionedObjects.forEach((obj, index) => {
+        if ('x' in obj && 'y' in obj) {
+          (obj as any).x = 100 + (index % gridSize) * 250;
+          (obj as any).y = 100 + Math.floor(index / gridSize) * 150;
+        }
       });
     }
 

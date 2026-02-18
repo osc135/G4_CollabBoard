@@ -44,8 +44,8 @@ describe('AIBoardAgent', () => {
 
     it('should count objects correctly', async () => {
       const objects: BoardObject[] = [
-        { id: '1', type: 'sticky', x: 0, y: 0, text: 'Task 1', color: '#ffeb3b' },
-        { id: '2', type: 'sticky', x: 100, y: 0, text: 'Task 2', color: '#ffeb3b' },
+        { id: '1', type: 'sticky', x: 0, y: 0, width: 200, height: 80, text: 'Task 1', color: '#ffeb3b' },
+        { id: '2', type: 'sticky', x: 100, y: 0, width: 200, height: 80, text: 'Task 2', color: '#ffeb3b' },
         { id: '3', type: 'rectangle', x: 200, y: 0, width: 100, height: 50, color: '#3b82f6', rotation: 0 }
       ];
       
@@ -58,11 +58,11 @@ describe('AIBoardAgent', () => {
     it('should identify clusters of objects', async () => {
       const objects: BoardObject[] = [
         // Cluster 1 - close together
-        { id: '1', type: 'sticky', x: 0, y: 0, text: 'Task 1', color: '#ffeb3b' },
-        { id: '2', type: 'sticky', x: 50, y: 50, text: 'Task 2', color: '#ffeb3b' },
+        { id: '1', type: 'sticky', x: 0, y: 0, width: 200, height: 80, text: 'Task 1', color: '#ffeb3b' },
+        { id: '2', type: 'sticky', x: 50, y: 50, width: 200, height: 80, text: 'Task 2', color: '#ffeb3b' },
         // Cluster 2 - far away
-        { id: '3', type: 'sticky', x: 1000, y: 1000, text: 'Task 3', color: '#4caf50' },
-        { id: '4', type: 'sticky', x: 1050, y: 1050, text: 'Task 4', color: '#4caf50' }
+        { id: '3', type: 'sticky', x: 1000, y: 1000, width: 200, height: 80, text: 'Task 3', color: '#4caf50' },
+        { id: '4', type: 'sticky', x: 1050, y: 1050, width: 200, height: 80, text: 'Task 4', color: '#4caf50' }
       ];
       
       const analysis = await agent.analyzeBoard(objects);
@@ -74,10 +74,10 @@ describe('AIBoardAgent', () => {
   describe('suggestions', () => {
     it('should suggest organizing scattered notes', async () => {
       const objects: BoardObject[] = [
-        { id: '1', type: 'sticky', x: 0, y: 0, text: 'Random', color: '#ffeb3b' },
-        { id: '2', type: 'sticky', x: 500, y: 800, text: 'Scattered', color: '#4caf50' },
-        { id: '3', type: 'sticky', x: 1200, y: 200, text: 'Notes', color: '#ff9800' },
-        { id: '4', type: 'sticky', x: 300, y: 1500, text: 'Everywhere', color: '#f44336' }
+        { id: '1', type: 'sticky', x: 0, y: 0, width: 200, height: 80, text: 'Random', color: '#ffeb3b' },
+        { id: '2', type: 'sticky', x: 500, y: 800, width: 200, height: 80, text: 'Scattered', color: '#4caf50' },
+        { id: '3', type: 'sticky', x: 1200, y: 200, width: 200, height: 80, text: 'Notes', color: '#ff9800' },
+        { id: '4', type: 'sticky', x: 300, y: 1500, width: 200, height: 80, text: 'Everywhere', color: '#f44336' }
       ];
       
       const suggestions = await agent.getSuggestions(objects);
@@ -91,6 +91,8 @@ describe('AIBoardAgent', () => {
         type: 'sticky' as const,
         x: i * 100,
         y: 0,
+        width: 200,
+        height: 80,
         text: `Task ${i}`,
         color: '#ffeb3b' // All same color
       }));
@@ -104,10 +106,10 @@ describe('AIBoardAgent', () => {
   describe('auto-organize', () => {
     it('should group stickies by color', async () => {
       const objects: BoardObject[] = [
-        { id: '1', type: 'sticky', x: 0, y: 0, text: 'Yellow 1', color: '#ffeb3b' },
-        { id: '2', type: 'sticky', x: 500, y: 500, text: 'Green 1', color: '#4caf50' },
-        { id: '3', type: 'sticky', x: 200, y: 800, text: 'Yellow 2', color: '#ffeb3b' },
-        { id: '4', type: 'sticky', x: 1000, y: 100, text: 'Green 2', color: '#4caf50' }
+        { id: '1', type: 'sticky', x: 0, y: 0, width: 200, height: 80, text: 'Yellow 1', color: '#ffeb3b' },
+        { id: '2', type: 'sticky', x: 500, y: 500, width: 200, height: 80, text: 'Green 1', color: '#4caf50' },
+        { id: '3', type: 'sticky', x: 200, y: 800, width: 200, height: 80, text: 'Yellow 2', color: '#ffeb3b' },
+        { id: '4', type: 'sticky', x: 1000, y: 100, width: 200, height: 80, text: 'Green 2', color: '#4caf50' }
       ];
       
       const organized = await agent.autoOrganize(objects, 'color');
@@ -115,11 +117,17 @@ describe('AIBoardAgent', () => {
       // Yellow stickies should be near each other
       const yellow1 = organized.find(o => o.id === '1');
       const yellow2 = organized.find(o => o.id === '3');
-      const distance = Math.sqrt(
-        Math.pow(yellow1!.x - yellow2!.x, 2) + 
-        Math.pow(yellow1!.y - yellow2!.y, 2)
-      );
-      expect(distance).toBeLessThan(300);
+      
+      // Type guard to ensure we have positioned objects
+      if (yellow1 && yellow2 && 'x' in yellow1 && 'x' in yellow2 && 'y' in yellow1 && 'y' in yellow2) {
+        const distance = Math.sqrt(
+          Math.pow(yellow1.x - yellow2.x, 2) + 
+          Math.pow(yellow1.y - yellow2.y, 2)
+        );
+        expect(distance).toBeLessThan(300);
+      } else {
+        expect.fail('Objects should have x,y coordinates');
+      }
     });
 
     it('should create grid layout', async () => {
@@ -128,6 +136,8 @@ describe('AIBoardAgent', () => {
         type: 'sticky' as const,
         x: Math.random() * 1000,
         y: Math.random() * 1000,
+        width: 200,
+        height: 80,
         text: `Note ${i}`,
         color: '#ffeb3b'
       }));
@@ -135,7 +145,9 @@ describe('AIBoardAgent', () => {
       const organized = await agent.autoOrganize(objects, 'grid');
       
       // Check if arranged in 3x3 grid
-      const positions = organized.map(o => ({ x: o.x, y: o.y }));
+      const positions = organized
+        .filter(o => 'x' in o && 'y' in o)
+        .map(o => ({ x: (o as any).x, y: (o as any).y }));
       const uniqueX = [...new Set(positions.map(p => p.x))];
       const uniqueY = [...new Set(positions.map(p => p.y))];
       
