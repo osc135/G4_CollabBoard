@@ -4,6 +4,7 @@ import { useAuth } from "./contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { RoomPreview } from "./RoomPreview";
 import { SupabaseBoardService } from "./lib/supabase-boards";
+import { extractRoomCode } from "./utils/roomCode";
 // Direct type definition to avoid import issues  
 interface BoardSummary {
   id: string;
@@ -19,6 +20,15 @@ interface BoardSummary {
 
 interface Room extends BoardSummary {}
 
+
+function copyToClipboard(text: string) {
+  navigator.clipboard.writeText(text).then(() => {
+    alert('Room code copied to clipboard!');
+  }).catch(() => {
+    alert(`Room code: ${text}`);
+  });
+}
+
 export function Dashboard() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
@@ -29,7 +39,7 @@ export function Dashboard() {
   const [creating, setCreating] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [joinCode, setJoinCode] = useState("");
-  const [joining] = useState(false);
+  const [joining, setJoining] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -65,7 +75,12 @@ export function Dashboard() {
     setCreating(true);
     try {
       const roomId = `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      await SupabaseBoardService.createBoard(newRoomName, roomId);
+      const board = await SupabaseBoardService.createBoard(newRoomName, roomId);
+      
+      console.log('📝 Created board:', board);
+      console.log('📝 Room ID:', roomId);
+      console.log('📝 Extracted code:', extractRoomCode(roomId));
+        
       navigate(`/board/${roomId}`);
     } catch (err) {
       console.error('Error creating board:', err);
@@ -91,9 +106,79 @@ export function Dashboard() {
   }
 
   async function joinRoomWithCode() {
-    alert('Room joining feature coming soon!');
-    setShowJoinModal(false);
-    setJoinCode('');
+    if (!joinCode.trim() || !user) return;
+    
+    setJoining(true);
+    try {
+      
+      // Search for boards where the room_id ends with the code (case insensitive)
+      const { data: allBoards, error } = await supabase
+        .from('boards')
+        .select('*')
+        .eq('is_public', true);
+      
+      if (error) throw error;
+      
+      // Filter boards where the extracted room code matches the input
+      const boards = allBoards?.filter(board => {
+        const extractedCode = extractRoomCode(board.room_id);
+        return extractedCode.toLowerCase() === joinCode.toLowerCase();
+      }) || [];
+      
+      if (!boards || boards.length === 0) {
+        alert('Room not found. Please check the code and try again.');
+        return;
+      }
+      
+      const board = boards[0];
+      console.log('✅ Found board:', board);
+      
+      // First check if already a collaborator
+      const { data: existingCollab } = await supabase
+        .from('board_collaborators')
+        .select('*')
+        .eq('board_id', board.id)
+        .eq('user_id', user.id)
+        .single();
+      
+      if (!existingCollab) {
+        console.log('➕ Adding user as collaborator...');
+        // Add user as collaborator 
+        const { data: newCollab, error: collaboratorError } = await supabase
+          .from('board_collaborators')
+          .insert({
+            board_id: board.id,
+            user_id: user.id,
+            role: 'editor'
+          })
+          .select()
+          .single();
+        
+        if (collaboratorError) {
+          console.error('❌ Could not add as collaborator:', collaboratorError);
+          alert(`Failed to join room: ${collaboratorError.message}`);
+          return;
+        }
+        console.log('✅ Added as collaborator:', newCollab);
+      } else {
+        console.log('✅ Already a collaborator:', existingCollab);
+      }
+      
+      // Add a small delay to ensure the database is updated
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Navigate to the room
+      console.log('🚀 Navigating to room:', board.room_id);
+      navigate(`/board/${board.room_id}`);
+      
+    } catch (err) {
+      console.error('❌ Error joining room:', err);
+      alert(`Failed to join room: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setJoining(false);
+      setShowJoinModal(false);
+      setJoinCode('');
+    }
   }
 
   if (loading) {
@@ -372,13 +457,40 @@ export function Dashboard() {
                     justifyContent: "space-between",
                     alignItems: "center"
                   }}>
-                    <span style={{
-                      fontSize: "12px",
-                      color: "#a0aec0",
-                      fontStyle: "italic"
-                    }}>
-                      Click to enter
-                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span style={{
+                        fontSize: "12px",
+                        color: "#a0aec0",
+                        fontStyle: "italic"
+                      }}>
+                        Click to enter
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          copyToClipboard(extractRoomCode(room.room_id));
+                        }}
+                        style={{
+                          padding: "4px 8px",
+                          background: "#10b981",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "4px",
+                          fontSize: "10px",
+                          fontWeight: "600",
+                          cursor: "pointer",
+                          transition: "all 0.2s ease"
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = "#059669";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = "#10b981";
+                        }}
+                      >
+                        📋 Share
+                      </button>
+                    </div>
                     <span style={{
                       color: "#667eea",
                       fontSize: "20px"

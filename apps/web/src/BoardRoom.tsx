@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Board, type Tool, STICKY_COLORS, getRandomStickyColor } from "./Board";
 import { useSupabaseBoard } from "./useSupabaseBoard";
 import { useAuth } from "./contexts/AuthContext";
-import { supabase } from "./lib/supabase";
+import { extractRoomCode } from "./utils/roomCode";
 import Konva from "konva";
 
 
@@ -26,32 +26,11 @@ export function BoardRoom() {
   );
 
 
-  // Generate or fetch invite code
+  // Extract invite code from room ID
   useEffect(() => {
-    async function fetchOrCreateInviteCode() {
-      if (!roomId) return;
-      
-      // First try to get existing invite code
-      const { data: room } = await supabase
-        .from('rooms')
-        .select('invite_code')
-        .eq('id', roomId)
-        .single();
-      
-      if (room?.invite_code) {
-        setInviteCode(room.invite_code);
-      } else {
-        // Generate new invite code
-        const newCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-        await supabase
-          .from('rooms')
-          .update({ invite_code: newCode })
-          .eq('id', roomId);
-        setInviteCode(newCode);
-      }
-    }
-    
-    fetchOrCreateInviteCode();
+    if (!roomId) return;
+    const code = extractRoomCode(roomId);
+    setInviteCode(code);
   }, [roomId]);
 
   useEffect(() => {
