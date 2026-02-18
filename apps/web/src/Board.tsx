@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Stage, Layer, Rect, Circle, Line, Text, Group, Shape, Transformer } from "react-konva";
 import Konva from "konva";
@@ -273,11 +273,7 @@ export function Board({
       return () => clearTimeout(t);
     }
   }, [editingStickyId]);
-  useEffect(() => {
-    if (editingTextboxId) {
-      return () => clearTimeout(t);
-    }
-  }, [editingTextboxId]);
+  // Removed textbox editing effect
 
   useLayoutEffect(() => {
     const objIds = new Set(objects.map((o) => o.id));
@@ -465,8 +461,9 @@ export function Board({
       ignoreNextClickRef.current = true;
       const ids: string[] = [];
       objects.forEach((obj) => {
-          const w = obj.type === "sticky" ? obj.width : (obj.width ?? 200);
-          const h = obj.type === "sticky" ? obj.height : (obj.height ?? 80);
+        if (obj.type === "sticky") {
+          const w = obj.width ?? 200;
+          const h = obj.height ?? 80;
           const ox = obj.x;
           const oy = obj.y;
           const intersects = !(ox + w < minX || ox > maxX || oy + h < minY || oy > maxY);
@@ -580,15 +577,6 @@ export function Board({
           color: selectedStickyColor ?? getRandomStickyColor(),
           rotation: 0,
         });
-        onObjectCreate({
-          x: pos.x,
-          y: pos.y,
-          width: 200,
-          height: 80,
-          text: "",
-          autoSize: true,
-          rotation: 0,
-        });
       } else if (tool === "rectangle") {
         onObjectCreate({
           id: `rect-${Date.now()}`,
@@ -696,63 +684,6 @@ export function Board({
               whiteSpace: "pre-wrap",
             }}
             placeholder="Type your note…"
-            spellCheck={false}
-          />,
-          document.body
-        )
-      : null;
-
-      ? createPortal(
-          <textarea
-            value={editingTextboxText}
-            onChange={(e) => setEditingTextboxText(e.target.value)}
-            onBlur={handleTextboxBlur}
-            onInput={(e) => {
-              const target = e.target as HTMLTextAreaElement;
-              
-              // Temporarily set height to auto to get the actual content height
-              const originalHeight = target.style.height;
-              target.style.height = 'auto';
-              const scrollHeight = target.scrollHeight;
-              target.style.height = originalHeight;
-              
-              // Calculate the needed height (with padding)
-              const neededHeight = Math.max(40, Math.ceil((scrollHeight / scale) + 16));
-              
-              // Update if height needs to change (expand or shrink)
-              if (neededHeight !== currentHeight) {
-              }
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                setEditingTextboxId(null);
-              }
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-              }
-            }}
-            style={{
-              position: "fixed",
-              padding: 0,
-              fontSize: 14 * scale,
-              lineHeight: 1.4,
-              fontFamily: "system-ui, sans-serif",
-              background: "transparent",
-              color: "#1a1a1a",
-              border: "none",
-              resize: "none",
-              outline: "none",
-              boxSizing: "border-box",
-              zIndex: 1000,
-              overflow: "hidden",
-              scrollbarWidth: "none",
-              msOverflowStyle: "none",
-              WebkitAppearance: "none",
-              appearance: "none",
-              wordWrap: "break-word",
-              whiteSpace: "pre-wrap",
-            }}
-            placeholder="Type text…"
             spellCheck={false}
           />,
           document.body

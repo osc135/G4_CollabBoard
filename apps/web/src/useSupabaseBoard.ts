@@ -9,7 +9,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   const [cursors, setCursors] = useState<Record<string, Cursor>>({});
   const [presence, setPresence] = useState<{ userId: string; name: string }[]>([]);
   const [boardId, setBoardId] = useState<string | null>(null);
-  const [optimisticObjects, setOptimisticObjects] = useState<Set<string>>(new Set());
+  const [, setOptimisticObjects] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!roomId || !userId) return;
@@ -209,7 +209,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   };
 
 
-  const emitCursor = async (x: number, y: number) => {
+  const emitCursor = async (_x: number, _y: number) => {
     // Update cursor position in presence channel
     // This functionality would need to be implemented with proper channel reference
   };
