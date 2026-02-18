@@ -65,16 +65,22 @@ export class SupabaseBoardService {
       .select()
       .single();
     
+    
     if (error) throw error;
     
     // Ensure user is added as owner collaborator (in case trigger doesn't work)
-    await supabase
+    const { error: collabError } = await supabase
       .from('board_collaborators')
       .insert({
         board_id: data.id,
         user_id: userId,
         role: 'owner'
       });
+    
+    // Ignore duplicate key errors (409 Conflict) as user may already be added
+    if (collabError && collabError.code !== '23505') {
+      console.warn('Could not add owner as collaborator:', collabError);
+    }
     
     return data;
   }
@@ -125,7 +131,7 @@ export class SupabaseBoardService {
     };
   }
   
-  // Get all user's boards
+  // Get all user's boards (both owned and collaborated)
   static async getUserBoards(): Promise<BoardSummary[]> {
     const user = await supabase.auth.getUser();
     const userId = user.data.user?.id;
@@ -134,15 +140,43 @@ export class SupabaseBoardService {
       return [];
     }
 
-    const { data, error } = await supabase
+    // Get boards where user is owner
+    const { data: ownedBoards, error: ownedError } = await supabase
       .from('boards')
       .select('*')
-      .eq('created_by', userId)  // Only get boards created by this user
+      .eq('created_by', userId)
       .order('updated_at', { ascending: false });
     
-    if (error) throw error;
+    if (ownedError) throw ownedError;
+
+    // Get boards where user is a collaborator
+    const { data: collaborations, error: collabError } = await supabase
+      .from('board_collaborators')
+      .select('board_id')
+      .eq('user_id', userId);
     
-    return (data || []).map(board => ({
+    if (collabError) throw collabError;
+    
+    let collaboratedBoards: any[] = [];
+    if (collaborations && collaborations.length > 0) {
+      const boardIds = collaborations.map(c => c.board_id);
+      const { data: collabBoards, error: collabBoardsError } = await supabase
+        .from('boards')
+        .select('*')
+        .in('id', boardIds)
+        .order('updated_at', { ascending: false });
+      
+      if (collabBoardsError) throw collabBoardsError;
+      collaboratedBoards = collabBoards || [];
+    }
+
+    // Combine and deduplicate boards
+    const allBoards = [...(ownedBoards || []), ...collaboratedBoards];
+    const uniqueBoards = allBoards.filter((board, index, self) => 
+      index === self.findIndex((b) => b.id === board.id)
+    );
+
+    return uniqueBoards.map(board => ({
       ...board,
       object_count: 0, // TODO: Add count queries later
       collaborator_count: 1, // TODO: Add count queries later
