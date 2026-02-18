@@ -18,6 +18,8 @@ interface BoardProps {
   onObjectUpdate: (obj: BoardObject) => void;
   onObjectDelete?: (id: string) => void;
   onCursorMove: (x: number, y: number) => void;
+  onObjectDrag?: (objectId: string, x: number, y: number) => void;
+  onObjectDragEnd?: (objectId: string, x: number, y: number) => void;
   stageRef: React.RefObject<Konva.Stage | null>;
 }
 
@@ -204,6 +206,8 @@ export function Board({
   onObjectUpdate,
   onObjectDelete,
   onCursorMove,
+  onObjectDrag,
+  onObjectDragEnd,
   stageRef,
   selectedStickyColor,
   selectedShapeColor = "#3b82f6",
@@ -853,6 +857,16 @@ export function Board({
                   const newX = e.target.x() - w / 2;
                   const newY = e.target.y() - h / 2;
                   setDraggingObject({ id: obj.id, x: newX, y: newY });
+                  // Broadcast drag position to other users
+                  if (onObjectDrag) {
+                    onObjectDrag(obj.id, newX, newY);
+                  }
+                  // Also emit cursor position during drag
+                  const stage = e.target.getStage();
+                  if (stage) {
+                    const point = stage.getRelativePointerPosition();
+                    if (point) onCursorMove(point.x, point.y);
+                  }
                   // Force re-render to update connectors in real-time
                   e.target.getLayer()?.batchDraw();
                 }}
@@ -861,7 +875,16 @@ export function Board({
                   const newY = e.target.y() - h / 2;
                   setDraggingObject(null);
                   setDraggingStickyId(null);
+                  // Broadcast drag end to other users
+                  onObjectDragEnd?.(obj.id, newX, newY);
                   onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
+                  // Force stage to update pointer position
+                  const stage = e.target.getStage();
+                  if (stage) {
+                    stage.setPointersPositions(e.evt);
+                    const point = stage.getRelativePointerPosition();
+                    if (point) onCursorMove(point.x, point.y);
+                  }
                 }}
                 onClick={(e) => {
                   e.cancelBubble = true;
@@ -1048,6 +1071,16 @@ export function Board({
                   const newX = e.target.x() - w / 2;
                   const newY = e.target.y() - h / 2;
                   setDraggingObject({ id: obj.id, x: newX, y: newY });
+                  // Broadcast drag position to other users
+                  if (onObjectDrag) {
+                    onObjectDrag(obj.id, newX, newY);
+                  }
+                  // Also emit cursor position during drag
+                  const stage = e.target.getStage();
+                  if (stage) {
+                    const point = stage.getRelativePointerPosition();
+                    if (point) onCursorMove(point.x, point.y);
+                  }
                   // Force re-render to update connectors in real-time
                   e.target.getLayer()?.batchDraw();
                 }}
@@ -1055,7 +1088,16 @@ export function Board({
                   const newX = e.target.x() - w / 2;
                   const newY = e.target.y() - h / 2;
                   setDraggingObject(null);
+                  // Broadcast drag end to other users
+                  onObjectDragEnd?.(obj.id, newX, newY);
                   onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
+                  // Force stage to update pointer position
+                  const stage = e.target.getStage();
+                  if (stage) {
+                    stage.setPointersPositions(e.evt);
+                    const point = stage.getRelativePointerPosition();
+                    if (point) onCursorMove(point.x, point.y);
+                  }
                 }}
                 onTransformEnd={(e) => {
                   const node = e.target;
@@ -1125,6 +1167,16 @@ export function Board({
                   const newX = e.target.x() - w / 2;
                   const newY = e.target.y() - h / 2;
                   setDraggingObject({ id: obj.id, x: newX, y: newY });
+                  // Broadcast drag position to other users
+                  if (onObjectDrag) {
+                    onObjectDrag(obj.id, newX, newY);
+                  }
+                  // Also emit cursor position during drag
+                  const stage = e.target.getStage();
+                  if (stage) {
+                    const point = stage.getRelativePointerPosition();
+                    if (point) onCursorMove(point.x, point.y);
+                  }
                   // Force re-render to update connectors in real-time
                   e.target.getLayer()?.batchDraw();
                 }}
@@ -1132,7 +1184,16 @@ export function Board({
                   const newX = e.target.x() - w / 2;
                   const newY = e.target.y() - h / 2;
                   setDraggingObject(null);
+                  // Broadcast drag end to other users
+                  onObjectDragEnd?.(obj.id, newX, newY);
                   onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
+                  // Force stage to update pointer position
+                  const stage = e.target.getStage();
+                  if (stage) {
+                    stage.setPointersPositions(e.evt);
+                    const point = stage.getRelativePointerPosition();
+                    if (point) onCursorMove(point.x, point.y);
+                  }
                 }}
                 onTransformEnd={(e) => {
                   const node = e.target;
@@ -1197,6 +1258,14 @@ export function Board({
                   const newX = e.target.x();
                   const newY = e.target.y();
                   setDraggingObject({ id: obj.id, x: newX, y: newY });
+                  // Broadcast drag position to other users
+                  onObjectDrag?.(obj.id, newX, newY);
+                  // Also emit cursor position during drag
+                  const stage = e.target.getStage();
+                  if (stage) {
+                    const point = stage.getRelativePointerPosition();
+                    if (point) onCursorMove(point.x, point.y);
+                  }
                   // Force re-render to update connectors in real-time
                   e.target.getLayer()?.batchDraw();
                 }}
@@ -1204,7 +1273,16 @@ export function Board({
                   const newX = e.target.x();
                   const newY = e.target.y();
                   setDraggingObject(null);
+                  // Broadcast drag end to other users
+                  onObjectDragEnd?.(obj.id, newX, newY);
                   onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
+                  // Force stage to update pointer position
+                  const stage = e.target.getStage();
+                  if (stage) {
+                    stage.setPointersPositions(e.evt);
+                    const point = stage.getRelativePointerPosition();
+                    if (point) onCursorMove(point.x, point.y);
+                  }
                 }}
                 onClick={(e) => {
                   e.cancelBubble = true;

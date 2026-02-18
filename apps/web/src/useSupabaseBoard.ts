@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import type { BoardObject, Cursor } from "@collabboard/shared";
 import { SupabaseBoardService } from "./lib/supabase-boards";
 import { supabase } from "./lib/supabase";
@@ -8,6 +8,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   const [sessionId] = useState(() => `${userId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
   
   const [connected, setConnected] = useState(false);
+  const dragThrottleRef = useRef<{ [key: string]: number }>({});
   const [objects, setObjects] = useState<BoardObject[]>([]);
   const [cursors, setCursors] = useState<Record<string, Cursor>>({});
   const [presence, setPresence] = useState<{ userId: string; name: string }[]>([]);
@@ -73,15 +74,12 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
           .on('presence', { event: 'sync' }, () => {
             const presenceState = channel.presenceState();
             const users = (Object.values(presenceState).flat() as any[]).filter((u: any) => u?.userId && u?.name) as { userId: string; name: string }[];
-            
-            console.log('👥 Presence sync - all users:', users);
             setPresence(users.map(u => ({ userId: u.userId, name: u.name })));
           })
           .on('presence', { event: 'join' }, ({ newPresences }) => {
-            console.log('User joined:', newPresences);
+            // User joined
           })
           .on('presence', { event: 'leave' }, ({ leftPresences }) => {
-            console.log('User left:', leftPresences);
             // Remove cursors for users who left
             setCursors(prev => {
               const newCursors = { ...prev };
@@ -95,7 +93,6 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
           })
           // Add broadcast listener for real-time cursor updates
           .on('broadcast', { event: 'cursor-move' }, ({ payload }) => {
-            console.log('🖱️ Received cursor broadcast:', payload);
             if (payload.sessionId !== sessionId) {
               setCursors(prev => ({
                 ...prev,
@@ -108,6 +105,22 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
                 }
               }));
             }
+          })
+          // Add broadcast listener for real-time drag updates
+          .on('broadcast', { event: 'object-drag' }, ({ payload }) => {
+            // Apply temporary position update during drag from other users
+            // Only apply if it's from a different session
+            if (payload.sessionId !== sessionId) {
+              setObjects(prev => prev.map(obj => 
+                obj.id === payload.objectId 
+                  ? { ...obj, x: payload.x, y: payload.y }
+                  : obj
+              ));
+            }
+          })
+          // Handle drag end to reset temporary states
+          .on('broadcast', { event: 'object-drag-end' }, ({ payload }) => {
+            // The actual database update will come through the regular subscription
           })
           .subscribe(async (status) => {
             if (status === 'SUBSCRIBED') {
@@ -216,12 +229,65 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     });
   }, [presenceChannel, sessionId, userId, displayName]);
 
+  const emitObjectDrag = useCallback((objectId: string, x: number, y: number) => {
+    if (!presenceChannel) return;
+    
+    // Throttle drag events to 30fps (33ms)
+    const now = Date.now();
+    const lastEmit = dragThrottleRef.current[objectId] || 0;
+    if (now - lastEmit < 33) return;
+    dragThrottleRef.current[objectId] = now;
+    
+    // Broadcast object drag position in real-time
+    presenceChannel.send({
+      type: 'broadcast',
+      event: 'object-drag',
+      payload: {
+        sessionId,
+        userId,
+        name: displayName,
+        objectId,
+        x,
+        y,
+        timestamp: now
+      }
+    }).catch((error: any) => {
+      console.error('Failed to broadcast object drag:', error);
+    });
+  }, [presenceChannel, sessionId, userId, displayName]);
+
+  const emitObjectDragEnd = useCallback((objectId: string, x: number, y: number) => {
+    if (!presenceChannel) return;
+    
+    // Clear throttle for this object
+    delete dragThrottleRef.current[objectId];
+    
+    // Broadcast drag end to clean up temporary states
+    presenceChannel.send({
+      type: 'broadcast',
+      event: 'object-drag-end',
+      payload: {
+        sessionId,
+        userId,
+        name: displayName,
+        objectId,
+        x,
+        y,
+        timestamp: Date.now()
+      }
+    }).catch((error: any) => {
+      console.error('Failed to broadcast object drag end:', error);
+    });
+  }, [presenceChannel, sessionId, userId, displayName]);
+
   return {
     connected,
     objects,
     cursors,
     presence,
     emitCursor,
+    emitObjectDrag,
+    emitObjectDragEnd,
     createObject,
     updateObject,
     deleteObject,

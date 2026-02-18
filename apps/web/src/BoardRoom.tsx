@@ -19,7 +19,7 @@ export function BoardRoom() {
   const [inviteCode, setInviteCode] = useState<string>("");
   const stageRef = useRef<Konva.Stage | null>(null);
 
-  const { connected, objects, cursors, presence, emitCursor, createObject, updateObject, deleteObject } = useSupabaseBoard(
+  const { connected, objects, cursors, presence, emitCursor, emitObjectDrag, emitObjectDragEnd, createObject, updateObject, deleteObject } = useSupabaseBoard(
     userId,
     displayName,
     roomId // Pass the room ID to the Supabase hook
@@ -72,6 +72,8 @@ export function BoardRoom() {
         onObjectUpdate={updateObject}
         onObjectDelete={deleteObject}
         onCursorMove={emitCursor}
+        onObjectDrag={emitObjectDrag}
+        onObjectDragEnd={emitObjectDragEnd}
         stageRef={stageRef}
         selectedStickyColor={selectedStickyColor}
         selectedShapeColor={selectedShapeColor}
