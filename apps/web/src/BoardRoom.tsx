@@ -4,6 +4,7 @@ import { Board, type Tool, STICKY_COLORS, getRandomStickyColor } from "./Board";
 import { useSupabaseBoard } from "./useSupabaseBoard";
 import { useAuth } from "./contexts/AuthContext";
 import { extractRoomCode } from "./utils/roomCode";
+import { AIChat } from "./components/AIChat";
 import Konva from "konva";
 
 
@@ -482,6 +483,7 @@ export function BoardRoom() {
           </div>
         </div>
       )}
+      <AIChat />
     </div>
   );
 }
