@@ -55,10 +55,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const user = session?.user ?? null;
-  const displayName =
-    (user?.user_metadata?.full_name as string | undefined) ??
-    (user?.email?.split("@")[0] as string | undefined) ??
-    "Anonymous";
+  
+  // Extract first name from full name or email
+  const getFirstName = (fullName?: string, email?: string): string => {
+    if (fullName) {
+      return fullName.split(' ')[0];
+    }
+    if (email) {
+      const emailPrefix = email.split("@")[0];
+      // Capitalize first letter
+      return emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1).toLowerCase();
+    }
+    return "Anonymous";
+  };
+  
+  const displayName = getFirstName(
+    user?.user_metadata?.full_name as string | undefined,
+    user?.email
+  );
   const userId = user?.id ?? "";
 
   const value: AuthContextValue = {
