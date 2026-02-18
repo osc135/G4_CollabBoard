@@ -1,0 +1,48 @@
+{
+  "objects": [
+    {
+      "id": "sticky-1771445472824-aiajppjjg",
+      "type": "sticky",
+      "x": 630.1456386129216,
+      "y": 202.40211058601946,
+      "width": 200,
+      "height": 200,
+      "text": "hi",
+      "color": "#9c27b0",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771445520008-ybmgga8qu",
+      "type": "sticky",
+      "x": 554.2816617978253,
+      "y": 433.04309265554906,
+      "width": 200,
+      "height": 200,
+      "text": "Sticky Note",
+      "color": "#9c27b0",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771445783766-k7nlj9eit",
+      "type": "sticky",
+      "x": 308.31296722672437,
+      "y": 144.8394678411306,
+      "width": 200,
+      "height": 200,
+      "text": "hi",
+      "color": "#ffeb3b",
+      "rotation": 0
+    },
+    {
+      "id": "sticky-1771445803689-ky3ceeh1x",
+      "type": "sticky",
+      "x": 490.9893476205069,
+      "y": 453.36112082015126,
+      "width": 200,
+      "height": 200,
+      "text": "New Sticky Note",
+      "color": "#4caf50",
+      "rotation": 0
+    }
+  ]
+}
