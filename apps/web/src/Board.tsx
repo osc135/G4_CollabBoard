@@ -718,10 +718,6 @@ export function Board({
             updateBackground();
             stage.on('dragmove', updateBackground);
             stage.on('wheel', updateBackground);
-            return () => {
-              stage.off('dragmove', updateBackground);
-              stage.off('wheel', updateBackground);
-            };
           }
         }
       }}
@@ -749,7 +745,15 @@ export function Board({
       x={position.x}
       y={position.y}
       draggable={tool === "pan" && !selectionBox}
+      style={{ position: 'relative', zIndex: 1 }}
       onWheel={handleWheel}
+      onMouseMove={(e) => {
+        // Track cursor movement for presence
+        const stage = e.target.getStage();
+        if (!stage) return;
+        const point = stage.getRelativePointerPosition();
+        if (point) onCursorMove(point.x, point.y);
+      }}
       onPointerMove={(e) => {
         handlePointerMove(e);
         handleStageMouseMove(e);

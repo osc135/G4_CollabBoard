@@ -4,12 +4,15 @@ import { SupabaseBoardService } from "./lib/supabase-boards";
 import { supabase } from "./lib/supabase";
 
 export function useSupabaseBoard(userId: string, displayName: string, roomId?: string) {
+  // Create unique session ID for each tab
+  const [sessionId] = useState(() => `${userId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+  
   const [connected, setConnected] = useState(false);
   const [objects, setObjects] = useState<BoardObject[]>([]);
   const [cursors, setCursors] = useState<Record<string, Cursor>>({});
   const [presence, setPresence] = useState<{ userId: string; name: string }[]>([]);
   const [boardId, setBoardId] = useState<string | null>(null);
-  const [, setOptimisticObjects] = useState<Set<string>>(new Set());
+  const [presenceChannel, setPresenceChannel] = useState<any>(null);
 
   useEffect(() => {
     if (!roomId || !userId) return;
@@ -41,35 +44,18 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
 
         // Subscribe to real-time changes
         subscription = SupabaseBoardService.subscribeToBoard(board.id, (payload) => {
-          console.log('Real-time update received:', payload);
-          
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             const legacyObject = SupabaseBoardService.convertToLegacyObject(payload.new);
             
-            setOptimisticObjects((prevOptimistic) => {
-              // If this object was created optimistically, ignore the real-time update and remove from tracking
-              if (prevOptimistic.has(legacyObject.id)) {
-                console.log('Ignoring real-time update for optimistic object:', legacyObject.id);
-                const newSet = new Set(prevOptimistic);
-                newSet.delete(legacyObject.id);
-                return newSet;
-              }
+            // Apply real-time update and deduplicate
+            setObjects((prev) => {
+              // Remove any existing object with the same ID first
+              const filteredObjects = prev.filter(o => o.id !== legacyObject.id);
               
-              // This is a real remote update, apply it
-              setObjects((prev) => {
-                const idx = prev.findIndex((o) => o.id === legacyObject.id);
-                if (idx < 0) {
-                  // New object from another user
-                  return [...prev, legacyObject];
-                } else {
-                  // Update existing object from another user
-                  const next = [...prev];
-                  next[idx] = { ...next[idx], ...legacyObject };
-                  return next;
-                }
-              });
+              // Add the updated object
+              const newObjects = [...filteredObjects, legacyObject];
               
-              return prevOptimistic;
+              return newObjects;
             });
           } else if (payload.eventType === 'DELETE') {
             setObjects((prev) => prev.filter(obj => obj.id !== payload.old.id));
@@ -82,14 +68,16 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
             const presenceState = channel.presenceState();
             const users = (Object.values(presenceState).flat() as any[]).filter((u: any) => u?.userId && u?.name) as { userId: string; name: string; x?: number; y?: number }[];
             
+            console.log('👥 Presence sync - all users:', users);
             setPresence(users.map(u => ({ userId: u.userId, name: u.name })));
             
-            // Update cursors
+            // Update cursors - exclude current session but show all others
             const cursorMap: Record<string, Cursor> = {};
-            users.forEach(user => {
-              if (user.x !== undefined && user.y !== undefined && user.userId !== userId) {
-                cursorMap[user.userId] = {
-                  id: user.userId,
+            users.forEach((user: any) => {
+              if (user.x !== undefined && user.y !== undefined && user.sessionId !== sessionId) {
+                console.log('🖱️ Adding cursor for user:', user.name, 'at', user.x, user.y, 'sessionId:', user.sessionId);
+                cursorMap[user.sessionId] = {
+                  id: user.sessionId,
                   userId: user.userId,
                   name: user.name,
                   x: user.x,
@@ -97,6 +85,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
                 };
               }
             });
+            console.log('🖱️ Final cursor map:', cursorMap);
             setCursors(cursorMap);
           })
           .on('presence', { event: 'join' }, ({ newPresences }) => {
@@ -107,14 +96,18 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
           })
           .subscribe(async (status) => {
             if (status === 'SUBSCRIBED') {
-              // Track this user's presence
+              // Track this user's presence with unique session ID
               await channel.track({
+                sessionId,
                 userId,
                 name: displayName,
                 joinedAt: new Date().toISOString(),
               });
             }
           });
+
+        // Store channel reference for cursor updates
+        setPresenceChannel(channel);
 
 
       } catch (error) {
@@ -128,6 +121,9 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     return () => {
       if (subscription) {
         subscription.unsubscribe();
+      }
+      if (presenceChannel) {
+        presenceChannel.unsubscribe();
       }
     };
   }, [roomId, userId, displayName]);
@@ -145,9 +141,6 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     // Add to UI immediately (optimistic update)
     setObjects(prev => [...prev, obj]);
     
-    // Track this object as optimistic to prevent double-rendering from real-time
-    setOptimisticObjects(prev => new Set(prev).add(obj.id));
-    
     // Save to database
     try {
       const supabaseObj = SupabaseBoardService.convertLegacyObject(obj, boardId);
@@ -156,12 +149,6 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
       console.error('Failed to save object:', error);
       // Remove from UI if save failed
       setObjects(prev => prev.filter(o => o.id !== obj.id));
-      // Remove from optimistic tracking
-      setOptimisticObjects(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(obj.id);
-        return newSet;
-      });
     }
   };
 
@@ -179,20 +166,11 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
       return prev;
     });
     
-    // Track this object as optimistic to prevent real-time flicker during updates
-    setOptimisticObjects(prev => new Set(prev).add(obj.id));
-    
     try {
       const supabaseObj = SupabaseBoardService.convertLegacyObject(obj, boardId);
       await SupabaseBoardService.upsertBoardObject(boardId, supabaseObj);
     } catch (error) {
       console.error('Failed to update object:', error);
-      // Remove from optimistic tracking on error
-      setOptimisticObjects(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(obj.id);
-        return newSet;
-      });
     }
   };
 
@@ -209,9 +187,27 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   };
 
 
-  const emitCursor = async (_x: number, _y: number) => {
+  const emitCursor = async (x: number, y: number) => {
+    console.log('🖱️ emitCursor called:', { x, y, sessionId, userId, displayName, hasChannel: !!presenceChannel });
+    
     // Update cursor position in presence channel
-    // This functionality would need to be implemented with proper channel reference
+    if (presenceChannel) {
+      try {
+        await presenceChannel.track({
+          sessionId,
+          userId,
+          name: displayName,
+          x,
+          y,
+          joinedAt: new Date().toISOString(),
+        });
+        console.log('✅ Cursor position tracked successfully');
+      } catch (error) {
+        console.error('❌ Failed to emit cursor:', error);
+      }
+    } else {
+      console.log('❌ No presence channel available for cursor tracking');
+    }
   };
 
   return {

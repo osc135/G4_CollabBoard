@@ -60,6 +60,7 @@ export class SupabaseBoardService {
         name,
         room_id: roomId,
         created_by: userId,
+        is_public: true,  // Make all boards public by default for room joining
       })
       .select()
       .single();
@@ -91,11 +92,11 @@ export class SupabaseBoardService {
       throw boardError;
     }
     
-    // Ensure current user is a collaborator on this board
+    // Only allow access if user is already a collaborator or owner
     const user = await supabase.auth.getUser();
     const userId = user.data.user?.id;
     
-    if (userId) {
+    if (userId && board.created_by !== userId) {
       // Check if user is already a collaborator
       const { data: collaborator } = await supabase
         .from('board_collaborators')
@@ -104,15 +105,9 @@ export class SupabaseBoardService {
         .eq('user_id', userId)
         .single();
       
-      // If not a collaborator, add them as an editor (for existing boards)
+      // If not a collaborator and not the owner, deny access
       if (!collaborator) {
-        await supabase
-          .from('board_collaborators')
-          .insert({
-            board_id: board.id,
-            user_id: userId,
-            role: 'editor'
-          });
+        throw new Error('Access denied: You must be invited to this board');
       }
     }
     
@@ -132,9 +127,17 @@ export class SupabaseBoardService {
   
   // Get all user's boards
   static async getUserBoards(): Promise<BoardSummary[]> {
+    const user = await supabase.auth.getUser();
+    const userId = user.data.user?.id;
+    
+    if (!userId) {
+      return [];
+    }
+
     const { data, error } = await supabase
       .from('boards')
       .select('*')
+      .eq('created_by', userId)  // Only get boards created by this user
       .order('updated_at', { ascending: false });
     
     if (error) throw error;
@@ -173,13 +176,33 @@ export class SupabaseBoardService {
   
   // Subscribe to real-time changes for a board
   static subscribeToBoard(boardId: string, callback: (payload: any) => void) {
+    console.log('🟡 Setting up subscription for board:', boardId);
+    
+    // Create a unique channel name
+    const channelName = `board-objects-${boardId}-${Date.now()}`;
+    
     return supabase
-      .channel(`board-${boardId}`)
+      .channel(channelName)
       .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'board_objects', filter: `board_id=eq.${boardId}` },
-        callback
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'board_objects', 
+          filter: `board_id=eq.${boardId}` 
+        },
+        (payload) => {
+          console.log('🟢 Raw subscription payload:', payload);
+          callback(payload);
+        }
       )
-      .subscribe();
+      .subscribe((status, err) => {
+        console.log('🔵 Subscription status:', status, err ? `Error: ${err}` : '');
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Successfully subscribed to real-time updates');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Real-time subscription failed. Check if real-time is enabled in Supabase.');
+        }
+      });
   }
   
   // Get board objects for preview (limit to reduce data transfer)
