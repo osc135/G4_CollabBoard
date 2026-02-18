@@ -483,7 +483,7 @@ export function BoardRoom() {
           </div>
         </div>
       )}
-      <AIChat />
+      <AIChat callbacks={{ createObject }} />
     </div>
   );
 }
