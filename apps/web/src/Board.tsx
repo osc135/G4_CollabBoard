@@ -1,10 +1,10 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Stage, Layer, Rect, Circle, Line, Text, Group, Shape, Transformer } from "react-konva";
 import Konva from "konva";
 import type { BoardObject, Cursor } from "@collabboard/shared";
 
-export type Tool = "pan" | "sticky" | "textbox" | "rectangle" | "circle" | "line";
+export type Tool = "pan" | "sticky" | "rectangle" | "circle" | "line";
 
 interface BoardProps {
   objects: BoardObject[];
@@ -39,11 +39,9 @@ function getAnchorPoint(obj: BoardObject, anchor: "top" | "right" | "bottom" | "
   }
   
   const width = obj.type === "sticky" ? obj.width : 
-                obj.type === "textbox" ? (obj.width ?? 200) : 
                 obj.type === "rectangle" || obj.type === "circle" ? obj.width : 
                 obj.type === "line" ? 100 : 0;
   const height = obj.type === "sticky" ? obj.height : 
-                 obj.type === "textbox" ? (obj.height ?? 80) : 
                  obj.type === "rectangle" || obj.type === "circle" ? obj.height : 
                  obj.type === "line" ? 100 : 0;
   
@@ -93,11 +91,9 @@ function getBestPerimeterPoint(obj: BoardObject, targetPoint: { x: number; y: nu
   }
   
   const width = obj.type === "sticky" ? obj.width : 
-                obj.type === "textbox" ? (obj.width ?? 200) : 
                 obj.type === "rectangle" || obj.type === "circle" ? obj.width : 
                 obj.type === "line" ? 100 : 0;
   const height = obj.type === "sticky" ? obj.height : 
-                 obj.type === "textbox" ? (obj.height ?? 80) : 
                  obj.type === "rectangle" || obj.type === "circle" ? obj.height : 
                  obj.type === "line" ? 100 : 0;
   
@@ -182,11 +178,9 @@ function findObjectAtPoint(objects: BoardObject[], point: { x: number; y: number
     if (obj.type === "connector") continue;
     
     const width = obj.type === "sticky" ? obj.width : 
-                  obj.type === "textbox" ? (obj.width ?? 200) : 
                   obj.type === "rectangle" || obj.type === "circle" ? obj.width : 
                   obj.type === "line" ? 100 : 0;
     const height = obj.type === "sticky" ? obj.height : 
-                   obj.type === "textbox" ? (obj.height ?? 80) : 
                    obj.type === "rectangle" || obj.type === "circle" ? obj.height : 
                    obj.type === "line" ? 100 : 0;
     
@@ -219,10 +213,8 @@ export function Board({
   const [editingStickyId, setEditingStickyId] = useState<string | null>(null);
   const [editingStickyText, setEditingStickyText] = useState("");
   const stickyInputRef = useRef<HTMLTextAreaElement>(null);
-  const [editingTextboxId, setEditingTextboxId] = useState<string | null>(null);
-  const [editingTextboxText, setEditingTextboxText] = useState("");
-  const textboxInputRef = useRef<HTMLTextAreaElement>(null);
   const [hoveredStickyId, setHoveredStickyId] = useState<string | null>(null);
+
   const [selectionBox, setSelectionBox] = useState<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null);
   const ignoreNextClickRef = useRef(false);
   const shapeRefs = useRef<Record<string, Konva.Group>>({});
@@ -283,7 +275,6 @@ export function Board({
   }, [editingStickyId]);
   useEffect(() => {
     if (editingTextboxId) {
-      const t = setTimeout(() => textboxInputRef.current?.focus(), 50);
       return () => clearTimeout(t);
     }
   }, [editingTextboxId]);
@@ -474,7 +465,6 @@ export function Board({
       ignoreNextClickRef.current = true;
       const ids: string[] = [];
       objects.forEach((obj) => {
-        if (obj.type === "sticky" || obj.type === "textbox") {
           const w = obj.type === "sticky" ? obj.width : (obj.width ?? 200);
           const h = obj.type === "sticky" ? obj.height : (obj.height ?? 80);
           const ox = obj.x;
@@ -590,10 +580,7 @@ export function Board({
           color: selectedStickyColor ?? getRandomStickyColor(),
           rotation: 0,
         });
-      } else if (tool === "textbox") {
         onObjectCreate({
-          id: `textbox-${Date.now()}`,
-          type: "textbox",
           x: pos.x,
           y: pos.y,
           width: 200,
@@ -630,7 +617,6 @@ export function Board({
   );
 
   const stickyObj = editingStickyId ? objects.find((o): o is Extract<BoardObject, { type: "sticky" }> => o.type === "sticky" && o.id === editingStickyId) : null;
-  const textboxObj = editingTextboxId ? objects.find((o): o is Extract<BoardObject, { type: "textbox" }> => o.type === "textbox" && o.id === editingTextboxId) : null;
   const stage = stageRef.current;
   const containerRect = (stage && "getContainer" in stage ? (stage as { getContainer: () => HTMLElement }).getContainer() : null)?.getBoundingClientRect();
   const stickyEditRect =
@@ -642,16 +628,6 @@ export function Board({
           height: Math.max(40, (stickyObj.height - 16) * scale),
         }
       : null;
-  const pad = 8;
-  const textboxEditRect =
-    textboxObj && containerRect
-      ? {
-          left: containerRect.left + (textboxObj.x + pad) * scale + position.x,
-          top: containerRect.top + (textboxObj.y + pad) * scale + position.y,
-          width: Math.max(80, ((textboxObj.width ?? 200) - pad * 2) * scale),
-          height: Math.max(40, ((textboxObj.height ?? 80) - pad * 2) * scale),
-        }
-      : null;
 
   const handleStickyBlur = useCallback(() => {
     if (!editingStickyId) return;
@@ -660,23 +636,6 @@ export function Board({
     setEditingStickyId(null);
   }, [editingStickyId, editingStickyText, objects, onObjectUpdate]);
 
-  const handleTextboxBlur = useCallback(() => {
-    if (!editingTextboxId) return;
-    const obj = objects.find((o): o is Extract<BoardObject, { type: "textbox" }> => o.type === "textbox" && o.id === editingTextboxId);
-    if (!obj) {
-      setEditingTextboxId(null);
-      return;
-    }
-    const el = textboxInputRef.current;
-    if (obj.autoSize !== false && el) {
-      const w = Math.max(80, el.scrollWidth + 4);
-      const h = Math.max(24, el.scrollHeight + 4);
-      onObjectUpdate({ ...obj, text: editingTextboxText, width: w, height: h, autoSize: true });
-    } else {
-      onObjectUpdate({ ...obj, text: editingTextboxText });
-    }
-    setEditingTextboxId(null);
-  }, [editingTextboxId, editingTextboxText, objects, onObjectUpdate]);
 
   const stickyEditor =
     editingStickyId && stickyObj && stickyEditRect
@@ -743,16 +702,12 @@ export function Board({
         )
       : null;
 
-  const textboxEditor =
-    editingTextboxId && textboxObj && textboxEditRect
       ? createPortal(
           <textarea
-            ref={textboxInputRef}
             value={editingTextboxText}
             onChange={(e) => setEditingTextboxText(e.target.value)}
             onBlur={handleTextboxBlur}
             onInput={(e) => {
-              // Auto-resize textbox based on content
               const target = e.target as HTMLTextAreaElement;
               
               // Temporarily set height to auto to get the actual content height
@@ -763,30 +718,21 @@ export function Board({
               
               // Calculate the needed height (with padding)
               const neededHeight = Math.max(40, Math.ceil((scrollHeight / scale) + 16));
-              const currentHeight = textboxObj.height ?? 80;
               
               // Update if height needs to change (expand or shrink)
               if (neededHeight !== currentHeight) {
-                onObjectUpdate({ ...textboxObj, height: neededHeight });
               }
             }}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
-                setEditingTextboxText(textboxObj.text);
                 setEditingTextboxId(null);
-                textboxInputRef.current?.blur();
               }
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                textboxInputRef.current?.blur();
               }
             }}
             style={{
               position: "fixed",
-              left: textboxEditRect.left,
-              top: textboxEditRect.top,
-              width: textboxEditRect.width,
-              height: textboxEditRect.height,
               padding: 0,
               fontSize: 14 * scale,
               lineHeight: 1.4,
@@ -808,7 +754,6 @@ export function Board({
             }}
             placeholder="Type text…"
             spellCheck={false}
-            className="textbox-edit-overlay"
           />,
           document.body
         )
@@ -1061,140 +1006,6 @@ export function Board({
                     />
                   );
                 })()}
-              </Group>
-            );
-          }
-          if (obj.type === "textbox") {
-            const w = obj.width ?? 200;
-            const h = obj.height ?? 80;
-            const rot = obj.rotation ?? 0;
-            const isSelected = selectedIds.includes(obj.id);
-            return (
-              <Group
-                key={obj.id}
-                ref={(el) => {
-                  if (el) shapeRefs.current[obj.id] = el;
-                }}
-                x={obj.x + w / 2}
-                y={obj.y + h / 2}
-                offsetX={w / 2}
-                offsetY={h / 2}
-                rotation={rot}
-                draggable
-                onDragMove={(e) => {
-                  const newX = e.target.x() - w / 2;
-                  const newY = e.target.y() - h / 2;
-                  setDraggingObject({ id: obj.id, x: newX, y: newY });
-                  // Force re-render to update connectors in real-time
-                  e.target.getLayer()?.batchDraw();
-                }}
-                onDragEnd={(e) => {
-                  const newX = e.target.x() - w / 2;
-                  const newY = e.target.y() - h / 2;
-                  setDraggingObject(null);
-                  onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
-                }}
-                onTransformEnd={(e) => {
-                  const node = e.target;
-                  const scaleX = node.scaleX();
-                  const scaleY = node.scaleY();
-                  
-                  // Reset scale to 1 and apply it to width/height
-                  node.scaleX(1);
-                  node.scaleY(1);
-                  
-                  const newWidth = Math.max(50, w * scaleX);
-                  const newHeight = Math.max(30, h * scaleY);
-                  const newX = node.x() - newWidth / 2;
-                  const newY = node.y() - newHeight / 2;
-                  
-                  onObjectUpdate({
-                    ...obj,
-                    x: newX,
-                    y: newY,
-                    width: newWidth,
-                    height: newHeight,
-                    rotation: node.rotation()
-                  });
-                }}
-                onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
-              >
-                <Rect
-                  name="textbox-body"
-                  x={-w / 2}
-                  y={-h / 2}
-                  width={w}
-                  height={h}
-                  fill="#fff"
-                  stroke={isSelected ? "#333" : "#e5e7eb"}
-                  strokeWidth={isSelected ? 2 : 1}
-                  cornerRadius={4}
-                  onClick={(e) => {
-                    e.cancelBubble = true;
-                    onSelect([obj.id]);
-                  }}
-                  onDblClick={(e) => {
-                    e.cancelBubble = true;
-                    setEditingTextboxId(obj.id);
-                    setEditingTextboxText(obj.text);
-                  }}
-                />
-                {editingTextboxId !== obj.id && (
-                  <Text
-                    name="textbox-text"
-                    text={obj.text || " "}
-                    width={w - 16}
-                    height={h - 16}
-                    x={-w / 2 + 8}
-                    y={-h / 2 + 8}
-                    fontSize={14 / scale}
-                    wrap="word"
-                    listening={false}
-                    fill="#1a1a1a"
-                  />
-                )}
-                {isSelected && (
-                  <Rect
-                    name="textbox-handle"
-                    x={w / 2 - 10}
-                    y={h / 2 - 10}
-                    width={10}
-                    height={10}
-                    fill="#333"
-                    cornerRadius={2}
-                    draggable
-                    onClick={(e) => {
-                      e.cancelBubble = true;
-                    }}
-                    onDragMove={(e) => {
-                      e.cancelBubble = true;
-                      const handle = e.target;
-                      const group = handle.getParent();
-                      if (!group) return;
-                      const newW = Math.max(60, handle.x() + w / 2 + 10);
-                      const newH = Math.max(24, handle.y() + h / 2 + 10);
-                      const body = group.find(".textbox-body")[0];
-                      const textNode = group.find(".textbox-text")[0];
-                      if (body) {
-                        body.width(newW);
-                        body.height(newH);
-                      }
-                      if (textNode) {
-                        textNode.width(newW - 16);
-                        textNode.height(newH - 16);
-                      }
-                    }}
-                    onDragEnd={(e) => {
-                      e.cancelBubble = true;
-                      const node = e.target;
-                      const newW = Math.max(60, node.x() + w / 2 + 10);
-                      const newH = Math.max(24, node.y() + h / 2 + 10);
-                      onObjectUpdate({ ...obj, width: newW, height: newH, autoSize: false, rotation: e.target.getParent()?.rotation() || 0 });
-                      node.position({ x: newW / 2 - 10, y: newH / 2 - 10 });
-                    }}
-                    dragBoundFunc={(pos) => ({ x: Math.max(-w / 2 + 10, pos.x), y: Math.max(-h / 2 + 10, pos.y) })}
-                  />
-                )}
               </Group>
             );
           }
@@ -1565,7 +1376,6 @@ export function Board({
       </Layer>
     </Stage>
     {stickyEditor}
-    {textboxEditor}
     {contextMenu && (
       <div
         style={{

@@ -9,6 +9,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   const [cursors, setCursors] = useState<Record<string, Cursor>>({});
   const [presence, setPresence] = useState<{ userId: string; name: string }[]>([]);
   const [boardId, setBoardId] = useState<string | null>(null);
+  const [optimisticObjects, setOptimisticObjects] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!roomId || !userId) return;
@@ -45,17 +46,30 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             const legacyObject = SupabaseBoardService.convertToLegacyObject(payload.new);
             
-            setObjects((prev) => {
-              const idx = prev.findIndex((o) => o.id === legacyObject.id);
-              if (idx < 0) {
-                // New object
-                return [...prev, legacyObject];
-              } else {
-                // Update existing object
-                const next = [...prev];
-                next[idx] = { ...next[idx], ...legacyObject };
-                return next;
+            setOptimisticObjects((prevOptimistic) => {
+              // If this object was created optimistically, ignore the real-time update and remove from tracking
+              if (prevOptimistic.has(legacyObject.id)) {
+                console.log('Ignoring real-time update for optimistic object:', legacyObject.id);
+                const newSet = new Set(prevOptimistic);
+                newSet.delete(legacyObject.id);
+                return newSet;
               }
+              
+              // This is a real remote update, apply it
+              setObjects((prev) => {
+                const idx = prev.findIndex((o) => o.id === legacyObject.id);
+                if (idx < 0) {
+                  // New object from another user
+                  return [...prev, legacyObject];
+                } else {
+                  // Update existing object from another user
+                  const next = [...prev];
+                  next[idx] = { ...next[idx], ...legacyObject };
+                  return next;
+                }
+              });
+              
+              return prevOptimistic;
             });
           } else if (payload.eventType === 'DELETE') {
             setObjects((prev) => prev.filter(obj => obj.id !== payload.old.id));
@@ -131,6 +145,9 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     // Add to UI immediately (optimistic update)
     setObjects(prev => [...prev, obj]);
     
+    // Track this object as optimistic to prevent double-rendering from real-time
+    setOptimisticObjects(prev => new Set(prev).add(obj.id));
+    
     // Save to database
     try {
       const supabaseObj = SupabaseBoardService.convertLegacyObject(obj, boardId);
@@ -139,6 +156,12 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
       console.error('Failed to save object:', error);
       // Remove from UI if save failed
       setObjects(prev => prev.filter(o => o.id !== obj.id));
+      // Remove from optimistic tracking
+      setOptimisticObjects(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(obj.id);
+        return newSet;
+      });
     }
   };
 
@@ -156,12 +179,20 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
       return prev;
     });
     
+    // Track this object as optimistic to prevent real-time flicker during updates
+    setOptimisticObjects(prev => new Set(prev).add(obj.id));
+    
     try {
       const supabaseObj = SupabaseBoardService.convertLegacyObject(obj, boardId);
       await SupabaseBoardService.upsertBoardObject(boardId, supabaseObj);
     } catch (error) {
       console.error('Failed to update object:', error);
-      // Revert on error by refreshing from server
+      // Remove from optimistic tracking on error
+      setOptimisticObjects(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(obj.id);
+        return newSet;
+      });
     }
   };
 
@@ -181,7 +212,6 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   const emitCursor = async (x: number, y: number) => {
     // Update cursor position in presence channel
     // This functionality would need to be implemented with proper channel reference
-    console.log('Cursor moved:', { x, y });
   };
 
   return {

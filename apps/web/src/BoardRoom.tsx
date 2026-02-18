@@ -114,7 +114,7 @@ export function BoardRoom() {
         <span data-testid="connection-status" style={{ color: connected ? "green" : "red" }}>
           {connected ? "Connected" : "Disconnected"}
         </span>
-        {(["pan", "sticky", "textbox", "rectangle", "circle", "line"] as const).map((t) => (
+        {(["pan", "sticky", "rectangle", "circle", "line"] as const).map((t) => (
           <button
             key={t}
             data-testid={`tool-${t}`}
