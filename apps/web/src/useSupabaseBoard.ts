@@ -213,17 +213,13 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     if (!presenceChannel) return;
     
     // Use broadcast for instant cursor updates
-    presenceChannel.send({
-      type: 'broadcast',
-      event: 'cursor-move',
-      payload: {
-        sessionId,
-        userId,
-        name: displayName,
-        x,
-        y,
-        timestamp: Date.now()
-      }
+    presenceChannel.httpSend('cursor-move', {
+      sessionId,
+      userId,
+      name: displayName,
+      x,
+      y,
+      timestamp: Date.now()
     }).catch((error: any) => {
       console.error('Failed to broadcast cursor:', error);
     });
@@ -239,18 +235,14 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     dragThrottleRef.current[objectId] = now;
     
     // Broadcast object drag position in real-time
-    presenceChannel.send({
-      type: 'broadcast',
-      event: 'object-drag',
-      payload: {
-        sessionId,
-        userId,
-        name: displayName,
-        objectId,
-        x,
-        y,
-        timestamp: now
-      }
+    presenceChannel.httpSend('object-drag', {
+      sessionId,
+      userId,
+      name: displayName,
+      objectId,
+      x,
+      y,
+      timestamp: now
     }).catch((error: any) => {
       console.error('Failed to broadcast object drag:', error);
     });
@@ -263,18 +255,14 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     delete dragThrottleRef.current[objectId];
     
     // Broadcast drag end to clean up temporary states
-    presenceChannel.send({
-      type: 'broadcast',
-      event: 'object-drag-end',
-      payload: {
-        sessionId,
-        userId,
-        name: displayName,
-        objectId,
-        x,
-        y,
-        timestamp: Date.now()
-      }
+    presenceChannel.httpSend('object-drag-end', {
+      sessionId,
+      userId,
+      name: displayName,
+      objectId,
+      x,
+      y,
+      timestamp: Date.now()
     }).catch((error: any) => {
       console.error('Failed to broadcast object drag end:', error);
     });

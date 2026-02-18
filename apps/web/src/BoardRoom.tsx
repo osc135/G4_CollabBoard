@@ -483,7 +483,7 @@ export function BoardRoom() {
           </div>
         </div>
       )}
-      <AIChat callbacks={{ createObject }} />
+      <AIChat callbacks={{ createObject }} stageRef={stageRef} />
     </div>
   );
 }

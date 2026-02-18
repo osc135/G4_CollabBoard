@@ -20,7 +20,12 @@ interface AIActionCallbacks {
   createObject: (object: any) => void;
 }
 
-export function AIChat({ callbacks }: { callbacks?: AIActionCallbacks }) {
+interface AIChatProps {
+  callbacks?: AIActionCallbacks;
+  stageRef?: React.RefObject<any>;
+}
+
+export function AIChat({ callbacks, stageRef }: AIChatProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
@@ -35,35 +40,89 @@ export function AIChat({ callbacks }: { callbacks?: AIActionCallbacks }) {
     scrollToBottom();
   }, [messages]);
   
+  const getViewportCenter = (): { x: number; y: number } => {
+    if (stageRef?.current) {
+      const stage = stageRef.current;
+      const scale = stage.scaleX() || 1;
+      const pos = stage.position() || { x: 0, y: 0 };
+      const width = stage.width() || window.innerWidth;
+      const height = stage.height() || window.innerHeight;
+      return {
+        x: Math.round((-pos.x + width / 2) / scale),
+        y: Math.round((-pos.y + height / 2) / scale),
+      };
+    }
+    return { x: 400, y: 300 };
+  };
+
   const processAICommand = async (command: string): Promise<AIResponse> => {
     try {
+      const viewport = getViewportCenter();
+      const stg = stageRef?.current;
+      console.log(`AIChat viewport: center=(${viewport.x}, ${viewport.y}) stagePos=(${stg?.x()}, ${stg?.y()}) scale=${stg?.scaleX()} stageSize=(${stg?.width()}x${stg?.height()}) hasRef=${!!stg}`);
       const response = await fetch('http://localhost:3001/api/ai/command', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ command, roomId: window.location.pathname.split('/').pop() }),
+        body: JSON.stringify({ command, roomId: window.location.pathname.split('/').pop(), viewport }),
       });
       
       const data: AIResponse = await response.json();
       
       // Process actions locally if callbacks are provided
       if (data.actions && callbacks) {
+        const viewport = getViewportCenter();
+        const spread = () => (Math.random() - 0.5) * 300;
         for (const action of data.actions) {
+          console.log(`AI action: ${action.tool}, args:`, JSON.stringify(action.arguments), `viewport: (${viewport.x}, ${viewport.y})`);
           if (action.tool === 'create_sticky_note' && callbacks.createObject) {
-            const stickyNote = {
+            callbacks.createObject({
               id: `sticky-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               type: 'sticky' as const,
-              x: action.arguments.x || Math.random() * 600 + 100,
-              y: action.arguments.y || Math.random() * 400 + 100,
+              x: viewport.x + spread(),
+              y: viewport.y + spread(),
               width: 200,
               height: 200,
               rotation: 0,
               text: action.arguments.text || '',
               color: action.arguments.color || '#ffeb3b',
               layer: 0
-            };
-            callbacks.createObject(stickyNote);
+            });
+          } else if (action.tool === 'create_rectangle' && callbacks.createObject) {
+            callbacks.createObject({
+              id: `rect-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              type: 'rectangle' as const,
+              x: viewport.x + spread(),
+              y: viewport.y + spread(),
+              width: action.arguments.width || 120,
+              height: action.arguments.height || 80,
+              color: action.arguments.color || '#2196f3',
+              rotation: 0
+            });
+          } else if (action.tool === 'create_circle' && callbacks.createObject) {
+            const size = action.arguments.size || 80;
+            callbacks.createObject({
+              id: `circle-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              type: 'circle' as const,
+              x: viewport.x + spread(),
+              y: viewport.y + spread(),
+              width: size,
+              height: size,
+              color: action.arguments.color || '#4caf50',
+              rotation: 0
+            });
+          } else if (action.tool === 'create_line' && callbacks.createObject) {
+            callbacks.createObject({
+              id: `line-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              type: 'line' as const,
+              x: viewport.x + spread(),
+              y: viewport.y + spread(),
+              width: action.arguments.width || 200,
+              height: action.arguments.height || 0,
+              color: action.arguments.color || '#333333',
+              rotation: 0
+            });
           }
         }
       }
@@ -271,10 +330,10 @@ export function AIChat({ callbacks }: { callbacks?: AIActionCallbacks }) {
                 }}>
                   <span style={{ fontSize: '24px', marginBottom: '8px' }}>✨</span>
                   <p style={{ margin: 0, fontSize: '14px' }}>
-                    Ask me to help create sticky notes, organize your board, or analyze your content!
+                    Ask me to create sticky notes, rectangles, circles, lines, organize your board, or analyze your content!
                   </p>
                   <p style={{ margin: '8px 0 0 0', fontSize: '12px' }}>
-                    Try: "Create a sticky note for our team meeting"
+                    Try: "Add a blue rectangle and a red circle"
                   </p>
                 </div>
               ) : (

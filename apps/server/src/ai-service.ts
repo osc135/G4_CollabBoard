@@ -24,7 +24,7 @@ const tools = [
     type: 'function' as const,
     function: {
       name: 'create_sticky_note',
-      description: 'Create a new sticky note on the board',
+      description: 'Create a new sticky note on the board. It will be placed near the user\'s current view automatically.',
       parameters: {
         type: 'object',
         properties: {
@@ -37,16 +37,79 @@ const tools = [
             enum: ['#ffeb3b', '#4caf50', '#ff9800', '#f44336', '#2196f3', '#9c27b0'],
             description: 'The color of the sticky note',
           },
-          x: {
-            type: 'number',
-            description: 'X position on the board',
-          },
-          y: {
-            type: 'number',
-            description: 'Y position on the board',
-          },
         },
         required: ['text'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'create_rectangle',
+      description: 'Create a rectangle shape on the board. It will be placed near the user\'s current view automatically.',
+      parameters: {
+        type: 'object',
+        properties: {
+          color: {
+            type: 'string',
+            description: 'The fill color of the rectangle (hex color code)',
+          },
+          width: {
+            type: 'number',
+            description: 'Width of the rectangle (default 120)',
+          },
+          height: {
+            type: 'number',
+            description: 'Height of the rectangle (default 80)',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'create_circle',
+      description: 'Create a circle shape on the board. It will be placed near the user\'s current view automatically.',
+      parameters: {
+        type: 'object',
+        properties: {
+          color: {
+            type: 'string',
+            description: 'The fill color of the circle (hex color code)',
+          },
+          size: {
+            type: 'number',
+            description: 'Diameter of the circle (default 80)',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'create_line',
+      description: 'Create a line on the board. It will be placed near the user\'s current view automatically.',
+      parameters: {
+        type: 'object',
+        properties: {
+          color: {
+            type: 'string',
+            description: 'The stroke color of the line (hex color code)',
+          },
+          width: {
+            type: 'number',
+            description: 'Horizontal extent of the line (default 200)',
+          },
+          height: {
+            type: 'number',
+            description: 'Vertical extent of the line (default 0 for horizontal line)',
+          },
+        },
+        required: [],
       },
     },
   },
@@ -108,11 +171,14 @@ Sticky notes: ${boardObjects.filter(o => o.type === 'sticky').length}
 Shapes: ${boardObjects.filter(o => ['rectangle', 'circle', 'line'].includes(o.type)).length}
 
 Available tools:
-- create_sticky_note: Create new sticky notes
+- create_sticky_note: Create new sticky notes with text content
+- create_rectangle: Create rectangle shapes on the board
+- create_circle: Create circle shapes on the board
+- create_line: Create lines on the board
 - organize_board: Arrange objects in patterns
 - analyze_board: Provide insights about the board
 
-Be helpful and concise in your responses.`;
+When the user asks for shapes, use the appropriate creation tool. Be helpful and concise in your responses.`;
 
       // Call OpenAI with function calling
       const generation = this.trace.generation({
