@@ -6,20 +6,6 @@ import { useAuth } from "./contexts/AuthContext";
 import { supabase } from "./lib/supabase";
 import Konva from "konva";
 
-// Add keyframes for pulse animation
-const pulseKeyframes = `
-  @keyframes pulse {
-    0% {
-      box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-    }
-    70% {
-      box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
-    }
-    100% {
-      box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
-    }
-  }
-`;
 
 export function BoardRoom() {
   const { roomId } = useParams<{ roomId: string }>();
