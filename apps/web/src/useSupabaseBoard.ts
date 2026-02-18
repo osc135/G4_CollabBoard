@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import type { BoardObject, Cursor } from "@collabboard/shared";
 import { SupabaseBoardService } from "./lib/supabase-boards";
 import { supabase } from "./lib/supabase";
