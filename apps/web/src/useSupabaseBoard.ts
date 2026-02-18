@@ -76,7 +76,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
             const users = (Object.values(presenceState).flat() as any[]).filter((u: any) => u?.userId && u?.name) as { userId: string; name: string }[];
             setPresence(users.map(u => ({ userId: u.userId, name: u.name })));
           })
-          .on('presence', { event: 'join' }, ({ newPresences }) => {
+          .on('presence', { event: 'join' }, () => {
             // User joined
           })
           .on('presence', { event: 'leave' }, ({ leftPresences }) => {
@@ -119,7 +119,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
             }
           })
           // Handle drag end to reset temporary states
-          .on('broadcast', { event: 'object-drag-end' }, ({ payload }) => {
+          .on('broadcast', { event: 'object-drag-end' }, () => {
             // The actual database update will come through the regular subscription
           })
           .subscribe(async (status) => {
