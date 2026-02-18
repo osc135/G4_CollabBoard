@@ -430,13 +430,19 @@ export function Board({
         
         // Only create line if there's a minimum drag distance
         if (Math.abs(width) >= 10 || Math.abs(height) >= 10) {
+          // Normalize coordinates so width and height are always positive
+          const normalizedX = Math.min(drawingLine.startX, drawingLine.currentX);
+          const normalizedY = Math.min(drawingLine.startY, drawingLine.currentY);
+          const normalizedWidth = Math.abs(width);
+          const normalizedHeight = Math.abs(height);
+          
           onObjectCreate({
             id: drawingLine.id,
             type: "line",
-            x: drawingLine.startX,
-            y: drawingLine.startY,
-            width: width,
-            height: height,
+            x: normalizedX,
+            y: normalizedY,
+            width: normalizedWidth,
+            height: normalizedHeight,
             color: selectedShapeColor,
             rotation: 0,
           });
@@ -692,6 +698,48 @@ export function Board({
 
   return (
     <>
+    <div 
+      ref={(el) => {
+        if (el && stageRef.current) {
+          const updateBackground = () => {
+            const stage = stageRef.current;
+            if (stage) {
+              const currentScale = stage.scaleX();
+              const currentPos = { x: stage.x(), y: stage.y() };
+              const gridSize = 20 * currentScale;
+              el.style.backgroundSize = `${gridSize}px ${gridSize}px`;
+              el.style.backgroundPosition = `${currentPos.x % gridSize}px ${currentPos.y % gridSize}px`;
+              el.style.backgroundImage = `radial-gradient(circle at ${currentScale}px ${currentScale}px, rgba(0,0,0,0.25) ${Math.max(0.5, currentScale * 0.8)}px, transparent 0)`;
+            }
+          };
+          
+          const stage = stageRef.current;
+          if (stage) {
+            updateBackground();
+            stage.on('dragmove', updateBackground);
+            stage.on('wheel', updateBackground);
+            return () => {
+              stage.off('dragmove', updateBackground);
+              stage.off('wheel', updateBackground);
+            };
+          }
+        }
+      }}
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        backgroundImage: `
+          radial-gradient(circle at ${scale}px ${scale}px, rgba(0,0,0,0.25) ${Math.max(0.5, scale * 0.8)}px, transparent 0)
+        `,
+        backgroundSize: `${20 * scale}px ${20 * scale}px`,
+        backgroundPosition: `${position.x % (20 * scale)}px ${position.y % (20 * scale)}px`,
+        pointerEvents: 'none',
+        zIndex: 0
+      }} 
+    />
     <Stage
       ref={stageRef as React.RefObject<Konva.Stage>}
       width={window.innerWidth}
@@ -853,9 +901,14 @@ export function Board({
                     width={w} 
                     height={h} 
                     fill={obj.color} 
-                    cornerRadius={4} 
-                    stroke={selectedIds.includes(obj.id) ? "#333" : hoveredObjectId === obj.id && drawingConnector ? "#3b82f6" : undefined} 
-                    strokeWidth={selectedIds.includes(obj.id) ? 2 : hoveredObjectId === obj.id && drawingConnector ? 3 : 0} 
+                    cornerRadius={6} 
+                    shadowColor="rgba(0,0,0,0.15)"
+                    shadowBlur={8}
+                    shadowOffsetX={0}
+                    shadowOffsetY={3}
+                    shadowOpacity={0.5}
+                    stroke={selectedIds.includes(obj.id) ? "#1e293b" : hoveredObjectId === obj.id && drawingConnector ? "#3b82f6" : undefined} 
+                    strokeWidth={selectedIds.includes(obj.id) ? 2.5 : hoveredObjectId === obj.id && drawingConnector ? 3 : 0} 
                   />
                 ) : (
                   <Shape
@@ -873,11 +926,18 @@ export function Board({
                       ctx.lineTo(cr, h);
                       ctx.quadraticCurveTo(0, h, 0, h - cr);
                       ctx.closePath();
+                      // Add shadow
+                      ctx.save();
+                      ctx.shadowColor = "rgba(0,0,0,0.15)";
+                      ctx.shadowBlur = 8;
+                      ctx.shadowOffsetX = 0;
+                      ctx.shadowOffsetY = 3;
                       ctx.fillStyle = obj.color;
                       ctx.fill();
+                      ctx.restore();
                       if (selectedIds.includes(obj.id)) {
-                        ctx.strokeStyle = "#333";
-                        ctx.lineWidth = 2;
+                        ctx.strokeStyle = "#1e293b";
+                        ctx.lineWidth = 2.5;
                         ctx.stroke();
                       } else if (hoveredObjectId === obj.id && drawingConnector) {
                         ctx.strokeStyle = "#3b82f6";
@@ -888,15 +948,38 @@ export function Board({
                     listening={false}
                   />
                 )}
-                {/* Only show thumbtack when not dragging */}
+                {/* Modern pin with gradient and shadow */}
                 {draggingStickyId !== obj.id && (
-                  <Group x={w / 2} y={4} listening={false}>
-                    <Circle radius={5} fill="#dc2626" stroke="#991b1b" strokeWidth={1} />
-                    <Line points={[0, 5, 0, 14]} stroke="#991b1b" strokeWidth={2} lineCap="round" listening={false} />
+                  <Group x={w / 2} y={6} listening={false}>
+                    <Circle 
+                      radius={6} 
+                      fillLinearGradientStartPoint={{ x: -6, y: -6 }}
+                      fillLinearGradientEndPoint={{ x: 6, y: 6 }}
+                      fillLinearGradientColorStops={[0, "#ef4444", 1, "#dc2626"]}
+                      stroke="#7f1d1d" 
+                      strokeWidth={0.5}
+                      shadowColor="rgba(0,0,0,0.3)"
+                      shadowBlur={3}
+                      shadowOffsetY={1}
+                    />
+                    <Circle radius={2} fill="#fca5a5" y={-1} />
+                    <Line points={[0, 6, 0, 16]} stroke="#7f1d1d" strokeWidth={2.5} lineCap="round" listening={false} />
                   </Group>
                 )}
                 {editingStickyId !== obj.id && (
-                  <Text text={obj.text} width={w - 16} height={h - 16} x={8} y={24} fontSize={14 / scale} wrap="word" listening={false} />
+                  <Text 
+                    text={obj.text} 
+                    width={w - 16} 
+                    height={h - 16} 
+                    x={8} 
+                    y={26} 
+                    fontSize={14 / scale} 
+                    fontFamily="system-ui, -apple-system, sans-serif"
+                    fontStyle="500"
+                    fill="#1f2937"
+                    wrap="word" 
+                    listening={false} 
+                  />
                 )}
                 {isHovered && (() => {
                   const size = 22;
@@ -1005,8 +1088,13 @@ export function Board({
                   width={w}
                   height={h}
                   fill={obj.color}
-                  stroke={isSelected ? "#333" : undefined}
-                  strokeWidth={isSelected ? 2 : 0}
+                  cornerRadius={8}
+                  shadowColor="rgba(0,0,0,0.12)"
+                  shadowBlur={6}
+                  shadowOffsetY={2}
+                  shadowOpacity={0.4}
+                  stroke={isSelected ? "#1e293b" : hoveredObjectId === obj.id && drawingConnector ? "#3b82f6" : undefined}
+                  strokeWidth={isSelected ? 2.5 : hoveredObjectId === obj.id && drawingConnector ? 3 : 0}
                 />
               </Group>
             );
@@ -1071,7 +1159,18 @@ export function Board({
                 }}
                 onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
               >
-                <Circle x={-w / 2 + r} y={-h / 2 + r} radius={r} fill={obj.color} stroke={isSelected ? "#333" : undefined} strokeWidth={isSelected ? 2 : 0} />
+                <Circle 
+                  x={-w / 2 + r} 
+                  y={-h / 2 + r} 
+                  radius={r} 
+                  fill={obj.color} 
+                  shadowColor="rgba(0,0,0,0.12)"
+                  shadowBlur={6}
+                  shadowOffsetY={2}
+                  shadowOpacity={0.4}
+                  stroke={isSelected ? "#1e293b" : hoveredObjectId === obj.id && drawingConnector ? "#3b82f6" : undefined} 
+                  strokeWidth={isSelected ? 2.5 : hoveredObjectId === obj.id && drawingConnector ? 3 : 0} 
+                />
               </Group>
             );
           }
@@ -1109,7 +1208,16 @@ export function Board({
                 }}
                 onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
               >
-                <Line points={[0, 0, w, h]} stroke={isSelected ? "#333" : obj.color} strokeWidth={isSelected ? 4 : 2} lineCap="round" />
+                <Line 
+                  points={[0, 0, w, h]} 
+                  stroke={isSelected ? "#1e293b" : (obj.color || "#3b82f6")} 
+                  strokeWidth={isSelected ? 4 : 3} 
+                  lineCap="round"
+                  shadowColor="rgba(0,0,0,0.1)"
+                  shadowBlur={4}
+                  shadowOffsetY={1}
+                  shadowOpacity={0.3}
+                />
                 {isSelected && (
                   <>
                     {/* Start point handle */}
