@@ -15,7 +15,7 @@ const openai = new OpenAI({
 const langfuse = new Langfuse({
   publicKey: process.env.LANGFUSE_PUBLIC_KEY || '',
   secretKey: process.env.LANGFUSE_SECRET_KEY || '',
-  host: process.env.LANGFUSE_HOST,
+  baseUrl: process.env.LANGFUSE_HOST || 'https://cloud.langfuse.com',
 });
 
 // Tool definitions for OpenAI function calling
@@ -147,11 +147,13 @@ Be helpful and concise in your responses.`;
       // Process tool calls and generate actions
       const actions: any[] = [];
       for (const toolCall of toolCalls) {
-        const args = JSON.parse(toolCall.function.arguments);
-        actions.push({
-          tool: toolCall.function.name,
-          arguments: args,
-        });
+        if ('function' in toolCall) {
+          const args = JSON.parse(toolCall.function.arguments);
+          actions.push({
+            tool: toolCall.function.name,
+            arguments: args,
+          });
+        }
       }
 
       // Update trace with success
@@ -169,10 +171,12 @@ Be helpful and concise in your responses.`;
     } catch (error) {
       console.error('AI Service error:', error);
       
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
       // Update trace with error
       if (this.trace) {
         this.trace.update({
-          output: { error: error.message },
+          output: { error: errorMessage },
           level: 'ERROR',
         });
         await langfuse.flush();
@@ -180,7 +184,7 @@ Be helpful and concise in your responses.`;
 
       return {
         message: 'Sorry, I encountered an error processing your request.',
-        error: error.message,
+        error: errorMessage,
       };
     }
   }
