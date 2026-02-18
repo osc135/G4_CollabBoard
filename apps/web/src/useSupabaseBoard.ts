@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import type { BoardObject, Cursor } from "@collabboard/shared";
 import { SupabaseBoardService } from "./lib/supabase-boards";
 import { supabase } from "./lib/supabase";
@@ -62,41 +62,56 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
           }
         });
 
-        // Set up presence channel for real-time collaboration
-        const channel = supabase.channel(`board-presence-${board.id}`)
+        // Set up presence channel for user tracking
+        const channel = supabase.channel(`board-presence-${board.id}`, {
+          config: {
+            presence: {
+              key: sessionId
+            }
+          }
+        })
           .on('presence', { event: 'sync' }, () => {
             const presenceState = channel.presenceState();
-            const users = (Object.values(presenceState).flat() as any[]).filter((u: any) => u?.userId && u?.name) as { userId: string; name: string; x?: number; y?: number }[];
+            const users = (Object.values(presenceState).flat() as any[]).filter((u: any) => u?.userId && u?.name) as { userId: string; name: string }[];
             
             console.log('👥 Presence sync - all users:', users);
             setPresence(users.map(u => ({ userId: u.userId, name: u.name })));
-            
-            // Update cursors - exclude current session but show all others
-            const cursorMap: Record<string, Cursor> = {};
-            users.forEach((user: any) => {
-              if (user.x !== undefined && user.y !== undefined && user.sessionId !== sessionId) {
-                console.log('🖱️ Adding cursor for user:', user.name, 'at', user.x, user.y, 'sessionId:', user.sessionId);
-                cursorMap[user.sessionId] = {
-                  id: user.sessionId,
-                  userId: user.userId,
-                  name: user.name,
-                  x: user.x,
-                  y: user.y,
-                };
-              }
-            });
-            console.log('🖱️ Final cursor map:', cursorMap);
-            setCursors(cursorMap);
           })
           .on('presence', { event: 'join' }, ({ newPresences }) => {
             console.log('User joined:', newPresences);
           })
           .on('presence', { event: 'leave' }, ({ leftPresences }) => {
             console.log('User left:', leftPresences);
+            // Remove cursors for users who left
+            setCursors(prev => {
+              const newCursors = { ...prev };
+              leftPresences.forEach((presence: any) => {
+                if (presence.sessionId) {
+                  delete newCursors[presence.sessionId];
+                }
+              });
+              return newCursors;
+            });
+          })
+          // Add broadcast listener for real-time cursor updates
+          .on('broadcast', { event: 'cursor-move' }, ({ payload }) => {
+            console.log('🖱️ Received cursor broadcast:', payload);
+            if (payload.sessionId !== sessionId) {
+              setCursors(prev => ({
+                ...prev,
+                [payload.sessionId]: {
+                  id: payload.sessionId,
+                  userId: payload.userId,
+                  name: payload.name,
+                  x: payload.x,
+                  y: payload.y,
+                }
+              }));
+            }
           })
           .subscribe(async (status) => {
             if (status === 'SUBSCRIBED') {
-              // Track this user's presence with unique session ID
+              // Track this user's presence (without cursor data)
               await channel.track({
                 sessionId,
                 userId,
@@ -128,12 +143,6 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     };
   }, [roomId, userId, displayName]);
 
-  // Cleanup presence channel when component unmounts
-  useEffect(() => {
-    return () => {
-      // Cleanup handled in main useEffect
-    };
-  }, []);
 
   const createObject = async (obj: BoardObject) => {
     if (!boardId) return;
@@ -187,28 +196,25 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   };
 
 
-  const emitCursor = async (x: number, y: number) => {
-    console.log('🖱️ emitCursor called:', { x, y, sessionId, userId, displayName, hasChannel: !!presenceChannel });
+  const emitCursor = useCallback((x: number, y: number) => {
+    if (!presenceChannel) return;
     
-    // Update cursor position in presence channel
-    if (presenceChannel) {
-      try {
-        await presenceChannel.track({
-          sessionId,
-          userId,
-          name: displayName,
-          x,
-          y,
-          joinedAt: new Date().toISOString(),
-        });
-        console.log('✅ Cursor position tracked successfully');
-      } catch (error) {
-        console.error('❌ Failed to emit cursor:', error);
+    // Use broadcast for instant cursor updates
+    presenceChannel.send({
+      type: 'broadcast',
+      event: 'cursor-move',
+      payload: {
+        sessionId,
+        userId,
+        name: displayName,
+        x,
+        y,
+        timestamp: Date.now()
       }
-    } else {
-      console.log('❌ No presence channel available for cursor tracking');
-    }
-  };
+    }).catch((error: any) => {
+      console.error('Failed to broadcast cursor:', error);
+    });
+  }, [presenceChannel, sessionId, userId, displayName]);
 
   return {
     connected,

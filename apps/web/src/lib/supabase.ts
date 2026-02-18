@@ -7,4 +7,10 @@ if (!url || !anonKey) {
   console.warn("Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY. Auth will not work.");
 }
 
-export const supabase = createClient(url ?? "", anonKey ?? "");
+export const supabase = createClient(url ?? "", anonKey ?? "", {
+  realtime: {
+    params: {
+      eventsPerSecond: 60,
+    }
+  }
+});
