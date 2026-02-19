@@ -174,9 +174,9 @@ function calculateOrthogonalPath(start: { x: number; y: number }, end: { x: numb
 
 // Helper to find which object is under a point
 function findObjectAtPoint(objects: BoardObject[], point: { x: number; y: number }): BoardObject | null {
-  // Check in reverse order (top to bottom)
-  for (let i = objects.length - 1; i >= 0; i--) {
-    const obj = objects[i];
+  // Sort by zIndex descending so we check top-most objects first
+  const sorted = [...objects].sort((a, b) => ((b as any).zIndex ?? 0) - ((a as any).zIndex ?? 0));
+  for (const obj of sorted) {
     if (obj.type === "connector") continue;
     
     const width = obj.type === "sticky" ? obj.width : 
@@ -832,7 +832,7 @@ export function Board({
             listening={false}
           />
         )}
-        {objects.map((obj) => {
+        {[...objects].sort((a, b) => ((a as any).zIndex ?? 0) - ((b as any).zIndex ?? 0)).map((obj) => {
           if (obj.type === "sticky") {
             const w = obj.width;
             const h = obj.height;

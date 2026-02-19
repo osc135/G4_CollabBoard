@@ -10,6 +10,7 @@ export const stickyNoteSchema = z.object({
   text: z.string(),
   color: z.string(),
   rotation: z.number().optional(),
+  zIndex: z.number().optional(),
 });
 
 export const textboxSchema = z.object({
@@ -22,6 +23,7 @@ export const textboxSchema = z.object({
   text: z.string(),
   autoSize: z.boolean().optional(),
   rotation: z.number().optional(),
+  zIndex: z.number().optional(),
 });
 
 export const shapeSchema = z.object({
@@ -33,6 +35,7 @@ export const shapeSchema = z.object({
   height: z.number(),
   color: z.string(),
   rotation: z.number().optional(),
+  zIndex: z.number().optional(),
 });
 
 export const connectorSchema = z.object({
@@ -49,6 +52,7 @@ export const connectorSchema = z.object({
   strokeWidth: z.number().optional(),
   arrowStart: z.boolean().optional(),
   arrowEnd: z.boolean().optional(),
+  zIndex: z.number().optional(),
 });
 
 export const boardObjectSchema = z.union([stickyNoteSchema, textboxSchema, shapeSchema, connectorSchema]);

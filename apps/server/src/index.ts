@@ -15,6 +15,7 @@ import {
 import { loadBoardState as loadFromDisk, saveBoardState as saveToDisk } from "./persistence.js";
 import { getCursorsForBoard, setCursor, removeCursor, setPresence, removePresence, getPresenceForBoard } from "./presence.js";
 import { boardObjectSchema } from "@collabboard/shared";
+import rateLimit from "express-rate-limit";
 import { AIService } from "./ai-service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -51,128 +52,35 @@ app.get("/api/room/:roomId/preview", async (req, res) => {
   }
 });
 
+// Rate limiter for AI commands: 10 requests per minute per IP
+const aiRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "Too many AI requests. Please wait a minute before trying again.",
+    error: "Rate limit exceeded",
+  },
+});
+
 // API endpoint for AI commands
-app.post("/api/ai/command", async (req, res) => {
+app.post("/api/ai/command", aiRateLimiter, async (req, res) => {
   try {
-    const { command, roomId = "default", viewport } = req.body;
-    const viewCenter = viewport || { x: 400, y: 300 };
-    console.log("AI command received via API:", command, "for room:", roomId, "viewport:", viewCenter);
-    
+    const { command, roomId = "default", history = [] } = req.body;
+    console.log("AI command received via API:", command, "for room:", roomId);
+
     const boardState = getBoardState(roomId);
     const response = await aiService.processCommand(
       command,
       boardState.objects,
-      "api-user"
+      "api-user",
+      history
     );
     console.log("AI response:", response);
-    
-    // Process any AI actions (create sticky notes, organize, etc.)
-    if (response.actions) {
-      // Helper: random offset near viewport center so multiple objects don't stack
-      const spread = () => (Math.random() - 0.5) * 300;
-      const defaultX = (args: any) => args.x ?? (viewCenter.x + spread());
-      const defaultY = (args: any) => args.y ?? (viewCenter.y + spread());
 
-      for (const action of response.actions) {
-        if (action.tool === 'create_sticky_note') {
-          const stickyNote = {
-            id: `sticky-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            type: 'sticky' as const,
-            x: defaultX(action.arguments),
-            y: defaultY(action.arguments),
-            width: 200,
-            height: 200,
-            rotation: 0,
-            text: action.arguments.text || '',
-            color: action.arguments.color || '#ffeb3b',
-            layer: boardState.objects.length
-          };
-          addObject(roomId, stickyNote);
-        } else if (action.tool === 'create_rectangle') {
-          const rect = {
-            id: `rect-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            type: 'rectangle' as const,
-            x: defaultX(action.arguments),
-            y: defaultY(action.arguments),
-            width: action.arguments.width || 120,
-            height: action.arguments.height || 80,
-            color: action.arguments.color || '#2196f3',
-            rotation: 0
-          };
-          addObject(roomId, rect);
-        } else if (action.tool === 'create_circle') {
-          const size = action.arguments.size || 80;
-          const circle = {
-            id: `circle-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            type: 'circle' as const,
-            x: defaultX(action.arguments),
-            y: defaultY(action.arguments),
-            width: size,
-            height: size,
-            color: action.arguments.color || '#4caf50',
-            rotation: 0
-          };
-          addObject(roomId, circle);
-        } else if (action.tool === 'create_line') {
-          const line = {
-            id: `line-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            type: 'line' as const,
-            x: defaultX(action.arguments),
-            y: defaultY(action.arguments),
-            width: action.arguments.width || 200,
-            height: action.arguments.height || 0,
-            color: action.arguments.color || '#333333',
-            rotation: 0
-          };
-          addObject(roomId, line);
-        } else if (action.tool === 'organize_board') {
-          // Implement organization logic based on strategy
-          const strategy = action.arguments.strategy;
-          let organized = [...boardState.objects];
-
-          if (strategy === 'grid') {
-            // Arrange in a grid
-            const cols = Math.ceil(Math.sqrt(organized.length));
-            organized.forEach((obj, i) => {
-              const col = i % cols;
-              const row = Math.floor(i / cols);
-              updateObject(roomId, {
-                ...obj,
-                x: 100 + col * 250,
-                y: 100 + row * 250
-              });
-            });
-          } else if (strategy === 'color') {
-            // Group by color
-            const byColor = organized.reduce((acc, obj) => {
-              if ('color' in obj && obj.color) {
-                const color = obj.color as string;
-                if (!acc[color]) acc[color] = [];
-                acc[color].push(obj);
-              }
-              return acc;
-            }, {} as Record<string, typeof organized>);
-
-            let xOffset = 100;
-            Object.values(byColor).forEach(group => {
-              group.forEach((obj, i) => {
-                updateObject(roomId, {
-                  ...obj,
-                  x: xOffset + (i % 3) * 220,
-                  y: 100 + Math.floor(i / 3) * 220
-                });
-              });
-              xOffset += 700;
-            });
-          }
-        }
-      }
-
-      // Emit updated board state after processing actions
-      const updatedState = getBoardState(roomId);
-      io.in(roomId).emit("board:state", { objects: updatedState.objects });
-    }
-
+    // Return response with actions — the client handles object creation
+    // via Supabase, which broadcasts to all users through realtime subscriptions
     res.json(response);
   } catch (error) {
     console.error("AI command error:", error);
