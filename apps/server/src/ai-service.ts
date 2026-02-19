@@ -6,6 +6,99 @@ import dotenv from 'dotenv';
 // Load environment variables
 dotenv.config();
 
+// --- Input Filter: reject off-topic messages before they reach the AI ---
+const BOARD_KEYWORDS = [
+  // actions
+  'create', 'draw', 'make', 'add', 'place', 'put', 'build', 'design',
+  'move', 'organize', 'arrange', 'align', 'layout', 'sort', 'group', 'cluster',
+  'delete', 'remove', 'clear', 'clean',
+  'resize', 'scale', 'rotate', 'flip',
+  'color', 'colour', 'change color', 'recolor',
+  // objects
+  'sticky', 'note', 'notes', 'rectangle', 'rect', 'circle', 'line', 'shape',
+  'square', 'box', 'oval', 'arrow', 'star', 'triangle',
+  'text', 'label', 'card',
+  // board concepts
+  'board', 'canvas', 'whiteboard', 'workspace',
+  'objects', 'items', 'elements',
+  'grid', 'row', 'column', 'stack', 'scatter',
+  'diagram', 'chart', 'flowchart', 'mindmap', 'mind map',
+  // scenes / drawing
+  'picture', 'scene', 'drawing', 'illustration', 'art',
+  'snowman', 'house', 'tree', 'flower', 'face', 'animal', 'car', 'robot',
+  'person', 'sun', 'moon', 'landscape', 'building',
+  // meta
+  'help', 'what can you', 'how do i', 'can you',
+  'analyze', 'analyse', 'summary', 'describe', 'count',
+  'undo', 'redo',
+  'layer', 'zindex', 'z-index', 'front', 'back', 'behind', 'overlap',
+];
+
+// Patterns that strongly indicate off-topic / prompt injection
+const REJECTION_PATTERNS = [
+  // prompt injection attempts
+  /ignore\s+(your|all|previous|prior|above)\s+(instructions|rules|prompt)/i,
+  /you\s+are\s+now\s+/i,
+  /pretend\s+(you('re|are)|to\s+be)/i,
+  /act\s+as\s+(a|an|if)/i,
+  /from\s+now\s+on/i,
+  /new\s+instructions?/i,
+  /override\s+(your|the|system)/i,
+  /disregard\s+(your|the|all|previous)/i,
+  /forget\s+(your|all|everything|previous)/i,
+  /system\s*prompt/i,
+  /repeat\s+(your|the)\s+(instructions|prompt|rules)/i,
+  /what\s+(are|were)\s+your\s+(instructions|rules|prompt)/i,
+  /reveal\s+(your|the)\s+(prompt|instructions|system)/i,
+  // jailbreak patterns
+  /do\s+anything\s+now/i,
+  /DAN\s+mode/i,
+  /jailbreak/i,
+  /developer\s+mode/i,
+];
+
+const REFUSAL_MESSAGE = "I'm your whiteboard assistant — I can only help with creating and organizing objects on the board! Try asking me to draw something, create sticky notes, or organize your board.";
+
+function isBoardRelated(input: string): { allowed: boolean; reason?: string } {
+  const lower = input.toLowerCase().trim();
+
+  // Always reject prompt injection attempts
+  for (const pattern of REJECTION_PATTERNS) {
+    if (pattern.test(input)) {
+      return { allowed: false, reason: 'prompt_injection' };
+    }
+  }
+
+  // Very short messages (1-2 words) that aren't greetings — let them through
+  // so the AI can ask "What would you like me to create?"
+  if (lower.split(/\s+/).length <= 3) {
+    // Check if it's a greeting or simple board query — allow it
+    if (/^(hi|hey|hello|sup|yo|thanks|thank you|ok|okay|yes|no|sure|please|help)/.test(lower)) {
+      return { allowed: true };
+    }
+  }
+
+  // Check if any board keyword is present
+  const hasBoardKeyword = BOARD_KEYWORDS.some(keyword => lower.includes(keyword));
+  if (hasBoardKeyword) {
+    return { allowed: true };
+  }
+
+  // If the message is a question with no board keywords, likely off-topic
+  // e.g. "What is the capital of France?"
+  if (/^(what|who|when|where|why|how|is|are|was|were|do|does|did|can|could|would|should|tell me|explain)\b/i.test(lower) && !hasBoardKeyword) {
+    return { allowed: false, reason: 'off_topic_question' };
+  }
+
+  // For anything else that's longer and has no board keywords, reject
+  if (lower.split(/\s+/).length > 5 && !hasBoardKeyword) {
+    return { allowed: false, reason: 'off_topic' };
+  }
+
+  // Default: allow ambiguous short messages through (the system prompt will handle them)
+  return { allowed: true };
+}
+
 // Initialize OpenAI client
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -130,6 +223,9 @@ const tools: OpenAI.ChatCompletionTool[] = [
   },
 ];
 
+// Export for testing
+export { isBoardRelated, REFUSAL_MESSAGE };
+
 export class AIService {
   private trace: any = null;
 
@@ -144,6 +240,13 @@ export class AIService {
     error?: string;
   }> {
     try {
+      // Input filter: reject off-topic or malicious messages before calling OpenAI
+      const filterResult = isBoardRelated(command);
+      if (!filterResult.allowed) {
+        console.log(`Input filter blocked message (${filterResult.reason}): "${command.slice(0, 80)}..."`);
+        return { message: REFUSAL_MESSAGE };
+      }
+
       // Start a new Langfuse trace
       this.trace = langfuse.trace({
         name: 'board-ai-command',
@@ -152,7 +255,26 @@ export class AIService {
       });
 
       // Create system message with board context
-      const systemMessage = `You are an AI assistant helping users manage their collaborative whiteboard.
+      const systemMessage = `You are a whiteboard-only AI assistant for a collaborative board app. Your SOLE purpose is to help users create, organize, and manage objects on their whiteboard.
+
+STRICT SCOPE — You must ONLY respond to requests related to the whiteboard:
+- Creating objects (sticky notes, rectangles, circles, lines)
+- Organizing, arranging, or laying out board objects
+- Analyzing or describing what's currently on the board
+- Drawing scenes, diagrams, or visual compositions on the board
+- Answering questions about what you can do on the board
+
+You must REFUSE any request that is not about the whiteboard. This includes but is not limited to:
+- General knowledge questions (history, science, math, trivia, etc.)
+- Coding help, homework, or writing assistance
+- Personal advice, opinions, or conversations
+- Anything unrelated to creating or managing board content
+
+When refusing, say: "I'm your whiteboard assistant — I can only help with creating and organizing objects on the board! Try asking me to draw something, create sticky notes, or organize your board."
+
+Do NOT answer the off-topic question even partially. Do NOT say "I know the answer but..." — just redirect to board tasks.
+
+BOARD STATE:
 The board currently has ${boardObjects.length} objects.
 Sticky notes: ${boardObjects.filter(o => o.type === 'sticky').length}
 Shapes: ${boardObjects.filter(o => ['rectangle', 'circle', 'line'].includes(o.type)).length}
