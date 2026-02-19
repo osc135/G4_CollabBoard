@@ -19,6 +19,7 @@ interface AIResponse {
 
 interface AIActionCallbacks {
   createObject: (object: any) => void;
+  updateObject: (object: any) => void;
   deleteObject: (id: string) => void;
 }
 
@@ -78,7 +79,6 @@ export function AIChat({ callbacks, stageRef, objects = [] }: AIChatProps) {
       });
       
       const data: AIResponse = await response.json();
-      
       // Process actions locally if callbacks are provided
       if (data.actions && callbacks) {
         const { centerX, centerY } = getViewport();
@@ -137,6 +137,48 @@ export function AIChat({ callbacks, stageRef, objects = [] }: AIChatProps) {
               rotation: 0,
               zIndex: args.zIndex ?? 0,
             });
+          } else if (action.tool === 'organize_board' && callbacks.updateObject) {
+            const gap = 8;
+            const groupGap = 30;
+
+            // Always group by type — rectangles together, circles together, etc.
+            const typeOrder = ['sticky', 'rectangle', 'circle', 'line'];
+            const groups: Record<string, any[]> = {};
+            for (const obj of objects) {
+              const key = obj.type || 'other';
+              if (!groups[key]) groups[key] = [];
+              groups[key].push(obj);
+            }
+
+            // Sort groups by type order for consistent layout
+            const sortedKeys = Object.keys(groups).sort((a, b) =>
+              (typeOrder.indexOf(a) === -1 ? 99 : typeOrder.indexOf(a)) -
+              (typeOrder.indexOf(b) === -1 ? 99 : typeOrder.indexOf(b))
+            );
+
+            // Lay out groups left-to-right, wrapping each group into a compact grid
+            let cursorX = centerX - 300;
+            const baseY = centerY - 200;
+
+            for (const key of sortedKeys) {
+              const group = groups[key];
+              const cols = Math.min(Math.ceil(Math.sqrt(group.length)), 6);
+              const cellW = (group[0]?.width || 80) + gap;
+              const cellH = (group[0]?.height || 80) + gap;
+
+              group.forEach((obj: any, i: number) => {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                callbacks.updateObject({ ...obj, x: cursorX + col * cellW, y: baseY + row * cellH });
+              });
+
+              cursorX += cols * cellW + groupGap;
+            }
+          } else if (action.tool === 'move_object' && callbacks.updateObject) {
+            const existing = objects.find((o: any) => o.id === args.id);
+            if (existing) {
+              callbacks.updateObject({ ...existing, x: args.x, y: args.y });
+            }
           } else if (action.tool === 'delete_object' && callbacks.deleteObject) {
             callbacks.deleteObject(args.id);
           } else if (action.tool === 'clear_board' && callbacks.deleteObject) {
