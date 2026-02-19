@@ -184,7 +184,13 @@ LAYERING: Use the zIndex parameter (0–100) to control which objects appear in 
 - 75–100: top accessories (hats, bows, items held)
 - Always set zIndex for EVERY object. Each object should have a UNIQUE zIndex so stacking order is unambiguous.
 
-Choose colors that make sense (e.g. white for snow, brown for wood, blue for ice). Be helpful and concise.`;
+Choose colors that make sense (e.g. white for snow, brown for wood, blue for ice).
+
+RESPONSE RULES:
+- When the user asks you to create or draw ANYTHING, you MUST call the appropriate tools. NEVER just describe what you would do — actually do it.
+- After creating objects, briefly describe what you made (e.g. "Here's a 3x3 grid of blue rectangles!" or "Here's your snowman with a top hat and scarf!").
+- If the user asks for something you cannot do with the available tools, say "Sorry, I'm unable to do that — I can create sticky notes, rectangles, circles, and lines."
+- NEVER respond with just "I can help you with that" — either create the objects or explain why you can't.`;
 
       // Call OpenAI with function calling
       const generation = this.trace.generation({
@@ -193,8 +199,9 @@ Choose colors that make sense (e.g. white for snow, brown for wood, blue for ice
         input: { command },
       });
 
-      // Build messages with conversation history
+      // Build messages with conversation history (capped at last 20 for token safety)
       const priorMessages: OpenAI.ChatCompletionMessageParam[] = history
+        .slice(-20)
         .map(m => ({
           role: m.role as 'user' | 'assistant',
           content: m.content,
@@ -243,8 +250,24 @@ Choose colors that make sense (e.g. white for snow, brown for wood, blue for ice
 
       await langfuse.flush();
 
+      // Generate a fallback message if the model didn't provide text
+      let message = response.content || '';
+      if (!message && actions.length > 0) {
+        const counts: Record<string, number> = {};
+        for (const a of actions) {
+          const name = a.tool.replace('create_', '').replace('_', ' ');
+          counts[name] = (counts[name] || 0) + 1;
+        }
+        const parts = Object.entries(counts).map(([name, count]) =>
+          count > 1 ? `${count} ${name}s` : `a ${name}`
+        );
+        message = `Here's ${parts.join(', ')}!`;
+      } else if (!message) {
+        message = "Sorry, I wasn't able to do that. I can create sticky notes, rectangles, circles, and lines on your board.";
+      }
+
       return {
-        message: response.content || 'I can help you with that!',
+        message,
         actions,
       };
     } catch (error) {

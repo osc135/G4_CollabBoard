@@ -60,7 +60,8 @@ export function AIChat({ callbacks, stageRef }: AIChatProps) {
   const processAICommand = async (command: string): Promise<AIResponse> => {
     try {
       const vp = getViewport();
-      const response = await fetch('http://localhost:3001/api/ai/command', {
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${apiBase}/api/ai/command`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -69,7 +70,7 @@ export function AIChat({ callbacks, stageRef }: AIChatProps) {
           command,
           roomId: window.location.pathname.split('/').pop(),
           viewport: { x: vp.centerX, y: vp.centerY },
-          history: messages.map(m => ({ role: m.sender === 'user' ? 'user' : 'assistant', content: m.text })),
+          history: messages.slice(-20).map(m => ({ role: m.sender === 'user' ? 'user' : 'assistant', content: m.text })),
         }),
       });
       
