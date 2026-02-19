@@ -27,19 +27,23 @@ interface AIChatProps {
   callbacks?: AIActionCallbacks;
   stageRef?: React.RefObject<any>;
   objects?: any[];
+  initialPrompt?: string;
+  boardConnected?: boolean;
+  onInitialPromptConsumed?: () => void;
 }
 
-export function AIChat({ callbacks, stageRef, objects = [] }: AIChatProps) {
+export function AIChat({ callbacks, stageRef, objects = [], initialPrompt, boardConnected, onInitialPromptConsumed }: AIChatProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const initialPromptFired = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
-  
+
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
@@ -294,6 +298,41 @@ export function AIChat({ callbacks, stageRef, objects = [] }: AIChatProps) {
     setMessages(prev => [...prev, aiMessage]);
   };
   
+  // Auto-trigger initial prompt (from "Build with AI" on dashboard)
+  // Waits until the board connection is established so createObject works
+  useEffect(() => {
+    if (!initialPrompt || !boardConnected || initialPromptFired.current) return;
+    initialPromptFired.current = true;
+
+    // Small delay after connection to ensure everything is stable
+    const timer = setTimeout(async () => {
+      setIsOpen(true);
+
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        text: initialPrompt,
+        sender: 'user',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, userMessage]);
+      setIsLoading(true);
+
+      const response = await processAICommand(initialPrompt);
+
+      setIsLoading(false);
+      const aiMessage: Message = {
+        id: Date.now().toString(),
+        text: response.error ? `Error: ${response.error}` : response.message,
+        sender: 'ai',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, aiMessage]);
+      onInitialPromptConsumed?.();
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [initialPrompt, boardConnected]);
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Board, type Tool, STICKY_COLORS, getRandomStickyColor } from "./Board";
 import { useSupabaseBoard } from "./useSupabaseBoard";
 import { useAuth } from "./contexts/AuthContext";
@@ -11,6 +11,8 @@ import Konva from "konva";
 export function BoardRoom() {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const aiPrompt = searchParams.get('ai');
   const { session, loading, displayName, userId } = useAuth();
   const [tool, setTool] = useState<Tool>("pan");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -483,7 +485,17 @@ export function BoardRoom() {
           </div>
         </div>
       )}
-      <AIChat callbacks={{ createObject, updateObject, deleteObject }} stageRef={stageRef} objects={objects} />
+      <AIChat
+        callbacks={{ createObject, updateObject, deleteObject }}
+        stageRef={stageRef}
+        objects={objects}
+        initialPrompt={aiPrompt || undefined}
+        boardConnected={connected}
+        onInitialPromptConsumed={() => {
+          searchParams.delete('ai');
+          setSearchParams(searchParams, { replace: true });
+        }}
+      />
     </div>
   );
 }

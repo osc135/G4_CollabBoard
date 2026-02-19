@@ -44,6 +44,11 @@ interface BoardSummary extends Board {
   collaborator_count: number;
 }
 
+interface UserBoardsResult {
+  owned: BoardSummary[];
+  shared: BoardSummary[];
+}
+
 export class SupabaseBoardService {
   
   // Create a new board
@@ -132,13 +137,13 @@ export class SupabaseBoardService {
     };
   }
   
-  // Get all user's boards (both owned and collaborated)
-  static async getUserBoards(): Promise<BoardSummary[]> {
+  // Get all user's boards split into owned and shared
+  static async getUserBoards(): Promise<UserBoardsResult> {
     const user = await supabase.auth.getUser();
     const userId = user.data.user?.id;
-    
+
     if (!userId) {
-      return [];
+      return { owned: [], shared: [] };
     }
 
     // Get boards where user is owner
@@ -147,41 +152,103 @@ export class SupabaseBoardService {
       .select('*')
       .eq('created_by', userId)
       .order('updated_at', { ascending: false });
-    
+
     if (ownedError) throw ownedError;
 
-    // Get boards where user is a collaborator
+    // Get boards where user is a collaborator (but not owner)
     const { data: collaborations, error: collabError } = await supabase
       .from('board_collaborators')
       .select('board_id')
       .eq('user_id', userId);
-    
+
     if (collabError) throw collabError;
-    
-    let collaboratedBoards: any[] = [];
+
+    const ownedIds = new Set((ownedBoards || []).map(b => b.id));
+
+    let sharedBoards: any[] = [];
     if (collaborations && collaborations.length > 0) {
-      const boardIds = collaborations.map(c => c.board_id);
-      const { data: collabBoards, error: collabBoardsError } = await supabase
-        .from('boards')
-        .select('*')
-        .in('id', boardIds)
-        .order('updated_at', { ascending: false });
-      
-      if (collabBoardsError) throw collabBoardsError;
-      collaboratedBoards = collabBoards || [];
+      // Filter out boards the user owns
+      const sharedBoardIds = collaborations
+        .map(c => c.board_id)
+        .filter(id => !ownedIds.has(id));
+
+      if (sharedBoardIds.length > 0) {
+        const { data: collabBoards, error: collabBoardsError } = await supabase
+          .from('boards')
+          .select('*')
+          .in('id', sharedBoardIds)
+          .order('updated_at', { ascending: false });
+
+        if (collabBoardsError) throw collabBoardsError;
+        sharedBoards = collabBoards || [];
+      }
     }
 
-    // Combine and deduplicate boards
-    const allBoards = [...(ownedBoards || []), ...collaboratedBoards];
-    const uniqueBoards = allBoards.filter((board, index, self) => 
-      index === self.findIndex((b) => b.id === board.id)
-    );
+    // Fetch collaborator counts for all boards
+    const allBoardIds = [...(ownedBoards || []), ...sharedBoards].map(b => b.id);
+    let collabCounts: Record<string, number> = {};
 
-    return uniqueBoards.map(board => ({
+    if (allBoardIds.length > 0) {
+      const { data: counts } = await supabase
+        .from('board_collaborators')
+        .select('board_id')
+        .in('board_id', allBoardIds);
+
+      if (counts) {
+        for (const row of counts) {
+          collabCounts[row.board_id] = (collabCounts[row.board_id] || 0) + 1;
+        }
+      }
+    }
+
+    const toSummary = (board: any): BoardSummary => ({
       ...board,
-      object_count: 0, // TODO: Add count queries later
-      collaborator_count: 1, // TODO: Add count queries later
-    }));
+      object_count: 0,
+      collaborator_count: collabCounts[board.id] || 1,
+    });
+
+    return {
+      owned: (ownedBoards || []).map(toSummary),
+      shared: sharedBoards.map(toSummary),
+    };
+  }
+
+  // Delete a board and all its data (owner only)
+  static async deleteBoard(boardId: string): Promise<void> {
+    // Delete board objects first
+    const { error: objError } = await supabase
+      .from('board_objects')
+      .delete()
+      .eq('board_id', boardId);
+    if (objError) throw objError;
+
+    // Delete collaborators
+    const { error: collabError } = await supabase
+      .from('board_collaborators')
+      .delete()
+      .eq('board_id', boardId);
+    if (collabError) throw collabError;
+
+    // Delete the board itself
+    const { error: boardError } = await supabase
+      .from('boards')
+      .delete()
+      .eq('id', boardId);
+    if (boardError) throw boardError;
+  }
+
+  // Leave a shared board (remove user from collaborators)
+  static async leaveBoard(boardId: string): Promise<void> {
+    const user = await supabase.auth.getUser();
+    const userId = user.data.user?.id;
+    if (!userId) throw new Error('User not authenticated');
+
+    const { error } = await supabase
+      .from('board_collaborators')
+      .delete()
+      .eq('board_id', boardId)
+      .eq('user_id', userId);
+    if (error) throw error;
   }
   
   // Add or update a board object
