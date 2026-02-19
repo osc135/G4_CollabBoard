@@ -67,13 +67,15 @@ const aiRateLimiter = rateLimit({
 // API endpoint for AI commands
 app.post("/api/ai/command", aiRateLimiter, async (req, res) => {
   try {
-    const { command, roomId = "default", history = [] } = req.body;
+    const { command, roomId = "default", history = [], objects = [] } = req.body;
     console.log("AI command received via API:", command, "for room:", roomId);
 
-    const boardState = getBoardState(roomId);
+    // Use objects from the client (Supabase is the source of truth)
+    // Fall back to server in-memory store if client didn't send objects
+    const boardObjects = objects.length > 0 ? objects : getBoardState(roomId).objects;
     const response = await aiService.processCommand(
       command,
-      boardState.objects,
+      boardObjects,
       "api-user",
       history
     );
@@ -118,22 +120,19 @@ io.on("connection", (socket) => {
     const parsed = boardObjectSchema.safeParse(data);
     if (!parsed.success) return;
     addObject(roomId, parsed.data);
-    const state = getBoardState(roomId);
-    io.in(roomId).emit("board:state", { objects: state.objects });
+    io.in(roomId).emit("object:created", parsed.data);
   });
 
   socket.on("object:update", (data: unknown) => {
     const parsed = boardObjectSchema.safeParse(data);
     if (!parsed.success) return;
     updateObject(roomId, parsed.data);
-    const state = getBoardState(roomId);
-    io.in(roomId).emit("board:state", { objects: state.objects });
+    io.in(roomId).emit("object:updated", parsed.data);
   });
 
   socket.on("object:delete", (objectId: string) => {
     removeObject(roomId, objectId);
-    const state = getBoardState(roomId);
-    io.in(roomId).emit("board:state", { objects: state.objects });
+    io.in(roomId).emit("object:deleted", objectId);
   });
 
   socket.on("ai:command", async (data: { command: string; viewport?: { x: number; y: number } }) => {
