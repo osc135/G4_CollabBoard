@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Stage, Layer, Rect, Circle, Line, Text, Group, Shape, Transformer } from "react-konva";
 import Konva from "konva";
-import type { BoardObject, Cursor } from "@collabboard/shared";
+import type { BoardObject, Cursor, StickyNote, Shape as ShapeType } from "@collabboard/shared";
 
 export type Tool = "pan" | "sticky" | "rectangle" | "circle" | "line";
 
@@ -196,6 +196,533 @@ function findObjectAtPoint(objects: BoardObject[], point: { x: number; y: number
   return null;
 }
 
+// ============= Stable callback types for memoized components =============
+
+interface ObjectHandlers {
+  onDragMove: (id: string, x: number, y: number) => void;
+  onDragEnd: (id: string, obj: BoardObject, x: number, y: number, rotation: number) => void;
+  onSelect: (id: string) => void;
+  onContextMenu: (e: Konva.KonvaEventObject<PointerEvent>, id: string) => void;
+  onTransformEnd: (obj: BoardObject, scaleX: number, scaleY: number, rotation: number, nodeX: number, nodeY: number) => void;
+  onCursorMove: (x: number, y: number) => void;
+}
+
+// ============= Memoized Sticky Note =============
+
+interface MemoStickyProps extends ObjectHandlers {
+  obj: StickyNote;
+  isSelected: boolean;
+  isHovered: boolean;
+  isDragging: boolean;
+  isEditing: boolean;
+  isConnectorTarget: boolean;
+  scale: number;
+  shapeRefs: React.MutableRefObject<Record<string, Konva.Group>>;
+  onStickyDragStart: (id: string) => void;
+  onStickyDragEnd: (id: string, obj: BoardObject, x: number, y: number, rotation: number) => void;
+  onDblClick: (id: string, text: string) => void;
+  onHoverEnter: (id: string) => void;
+  onHoverLeave: () => void;
+}
+
+const MemoStickyNote = React.memo<MemoStickyProps>(({
+  obj, isSelected, isHovered, isDragging, isEditing, isConnectorTarget, scale,
+  shapeRefs, onDragMove, onStickyDragStart, onStickyDragEnd, onSelect, onContextMenu,
+  onDblClick, onHoverEnter, onHoverLeave, onTransformEnd, onCursorMove,
+}) => {
+  const w = obj.width;
+  const h = obj.height;
+  const rot = obj.rotation ?? 0;
+
+  return (
+    <Group
+      key={obj.id}
+      ref={(el) => { if (el) shapeRefs.current[obj.id] = el; }}
+      x={obj.x + w / 2}
+      y={obj.y + h / 2}
+      offsetX={w / 2}
+      offsetY={h / 2}
+      rotation={rot}
+      draggable
+      onDragStart={() => onStickyDragStart(obj.id)}
+      onDragMove={(e) => {
+        const newX = e.target.x() - w / 2;
+        const newY = e.target.y() - h / 2;
+        onDragMove(obj.id, newX, newY);
+        const stage = e.target.getStage();
+        if (stage) {
+          const point = stage.getRelativePointerPosition();
+          if (point) onCursorMove(point.x, point.y);
+        }
+        e.target.getLayer()?.batchDraw();
+      }}
+      onDragEnd={(e) => {
+        const newX = e.target.x() - w / 2;
+        const newY = e.target.y() - h / 2;
+        onStickyDragEnd(obj.id, obj, newX, newY, e.target.rotation());
+        const stage = e.target.getStage();
+        if (stage) {
+          stage.setPointersPositions(e.evt);
+          const point = stage.getRelativePointerPosition();
+          if (point) onCursorMove(point.x, point.y);
+        }
+      }}
+      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onContextMenu={(e) => onContextMenu(e, obj.id)}
+      onDblClick={(e) => { e.cancelBubble = true; onDblClick(obj.id, obj.text); }}
+      onPointerEnter={() => onHoverEnter(obj.id)}
+      onPointerLeave={() => onHoverLeave()}
+      onTransformEnd={(e) => {
+        const node = e.target;
+        onTransformEnd(obj, node.scaleX(), node.scaleY(), node.rotation(), node.x(), node.y());
+        node.scaleX(1);
+        node.scaleY(1);
+      }}
+    >
+      <Rect width={w} height={h} fill="transparent" listening />
+      {!isHovered ? (
+        <Rect
+          width={w}
+          height={h}
+          fill={obj.color}
+          cornerRadius={6}
+          shadowColor="rgba(0,0,0,0.15)"
+          shadowBlur={8}
+          shadowOffsetX={0}
+          shadowOffsetY={3}
+          shadowOpacity={0.5}
+          stroke={isSelected ? "#1e293b" : isConnectorTarget ? "#3b82f6" : undefined}
+          strokeWidth={isSelected ? 2.5 : isConnectorTarget ? 3 : 0}
+        />
+      ) : (
+        <Shape
+          sceneFunc={(ctx) => {
+            const cr = 4;
+            const cut = 22;
+            ctx.beginPath();
+            ctx.moveTo(0, h - cr);
+            ctx.lineTo(0, cr);
+            ctx.quadraticCurveTo(0, 0, cr, 0);
+            ctx.lineTo(w - cr, 0);
+            ctx.quadraticCurveTo(w, 0, w, cr);
+            ctx.lineTo(w, h - cut);
+            ctx.lineTo(w - cut, h);
+            ctx.lineTo(cr, h);
+            ctx.quadraticCurveTo(0, h, 0, h - cr);
+            ctx.closePath();
+            ctx.save();
+            ctx.shadowColor = "rgba(0,0,0,0.15)";
+            ctx.shadowBlur = 8;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 3;
+            ctx.fillStyle = obj.color;
+            ctx.fill();
+            ctx.restore();
+            if (isSelected) {
+              ctx.strokeStyle = "#1e293b";
+              ctx.lineWidth = 2.5;
+              ctx.stroke();
+            } else if (isConnectorTarget) {
+              ctx.strokeStyle = "#3b82f6";
+              ctx.lineWidth = 3;
+              ctx.stroke();
+            }
+          }}
+          listening={false}
+        />
+      )}
+      {!isDragging && (
+        <Group x={w / 2} y={6} listening={false}>
+          <Circle
+            radius={6}
+            fillLinearGradientStartPoint={{ x: -6, y: -6 }}
+            fillLinearGradientEndPoint={{ x: 6, y: 6 }}
+            fillLinearGradientColorStops={[0, "#ef4444", 1, "#dc2626"]}
+            stroke="#7f1d1d"
+            strokeWidth={0.5}
+            shadowColor="rgba(0,0,0,0.3)"
+            shadowBlur={3}
+            shadowOffsetY={1}
+          />
+          <Circle radius={2} fill="#fca5a5" y={-1} />
+          <Line points={[0, 6, 0, 16]} stroke="#7f1d1d" strokeWidth={2.5} lineCap="round" listening={false} />
+        </Group>
+      )}
+      {!isEditing && (
+        <Text
+          text={obj.text}
+          width={w - 16}
+          height={h - 16}
+          x={8}
+          y={26}
+          fontSize={14 / scale}
+          fontFamily="system-ui, -apple-system, sans-serif"
+          fontStyle="500"
+          fill="#1f2937"
+          wrap="word"
+          listening={false}
+        />
+      )}
+      {isHovered && (() => {
+        const size = 22;
+        const lift = 3;
+        const tipX = w - 6 - lift;
+        const tipY = h - size - lift;
+        const rightX = w - lift;
+        const rightY = h - 10 - lift;
+        const bottomX = w - 10 - lift;
+        const bottomY = h - lift;
+        const lighten = (hex: string, pct: number) => {
+          const num = parseInt(hex.slice(1), 16);
+          if (isNaN(num)) return hex;
+          const r = Math.min(255, ((num >> 16) & 0xff) + 255 * pct);
+          const g = Math.min(255, ((num >> 8) & 0xff) + 255 * pct);
+          const b = Math.min(255, (num & 0xff) + 255 * pct);
+          return `rgb(${r | 0},${g | 0},${b | 0})`;
+        };
+        const underside = obj.color.startsWith("#") ? lighten(obj.color, 0.1) : obj.color;
+        return (
+          <Shape
+            sceneFunc={(ctx) => {
+              ctx.beginPath();
+              ctx.moveTo(tipX, tipY);
+              ctx.lineTo(rightX, rightY);
+              ctx.quadraticCurveTo(w - 12, h - 12, bottomX, bottomY);
+              ctx.closePath();
+              ctx.save();
+              ctx.shadowColor = "rgba(0,0,0,0.18)";
+              ctx.shadowBlur = 6;
+              ctx.shadowOffsetX = 1;
+              ctx.shadowOffsetY = 2;
+              ctx.fillStyle = underside;
+              ctx.fill();
+              ctx.restore();
+            }}
+            listening={false}
+          />
+        );
+      })()}
+    </Group>
+  );
+});
+
+// ============= Memoized Rectangle =============
+
+interface MemoRectProps extends ObjectHandlers {
+  obj: ShapeType;
+  isSelected: boolean;
+  isConnectorTarget: boolean;
+  shapeRefs: React.MutableRefObject<Record<string, Konva.Group>>;
+}
+
+const MemoRectangle = React.memo<MemoRectProps>(({
+  obj, isSelected, isConnectorTarget, shapeRefs,
+  onDragMove, onDragEnd, onSelect, onContextMenu, onTransformEnd, onCursorMove,
+}) => {
+  const w = obj.width;
+  const h = obj.height;
+  const rot = obj.rotation ?? 0;
+
+  return (
+    <Group
+      key={obj.id}
+      ref={(el) => { if (el) shapeRefs.current[obj.id] = el; }}
+      x={obj.x + w / 2}
+      y={obj.y + h / 2}
+      offsetX={w / 2}
+      offsetY={h / 2}
+      rotation={rot}
+      draggable
+      onDragMove={(e) => {
+        const newX = e.target.x() - w / 2;
+        const newY = e.target.y() - h / 2;
+        onDragMove(obj.id, newX, newY);
+        const stage = e.target.getStage();
+        if (stage) {
+          const point = stage.getRelativePointerPosition();
+          if (point) onCursorMove(point.x, point.y);
+        }
+        e.target.getLayer()?.batchDraw();
+      }}
+      onDragEnd={(e) => {
+        const newX = e.target.x() - w / 2;
+        const newY = e.target.y() - h / 2;
+        onDragEnd(obj.id, obj, newX, newY, e.target.rotation());
+        const stage = e.target.getStage();
+        if (stage) {
+          stage.setPointersPositions(e.evt);
+          const point = stage.getRelativePointerPosition();
+          if (point) onCursorMove(point.x, point.y);
+        }
+      }}
+      onTransformEnd={(e) => {
+        const node = e.target;
+        onTransformEnd(obj, node.scaleX(), node.scaleY(), node.rotation(), node.x(), node.y());
+        node.scaleX(1);
+        node.scaleY(1);
+      }}
+      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onContextMenu={(e) => onContextMenu(e, obj.id)}
+    >
+      <Rect
+        x={-w / 2}
+        y={-h / 2}
+        width={w}
+        height={h}
+        fill={obj.color}
+        cornerRadius={8}
+        shadowColor="rgba(0,0,0,0.12)"
+        shadowBlur={6}
+        shadowOffsetY={2}
+        shadowOpacity={0.4}
+        stroke={isSelected ? "#1e293b" : isConnectorTarget ? "#3b82f6" : undefined}
+        strokeWidth={isSelected ? 2.5 : isConnectorTarget ? 3 : 0}
+      />
+    </Group>
+  );
+});
+
+// ============= Memoized Circle =============
+
+interface MemoCircleProps extends ObjectHandlers {
+  obj: ShapeType;
+  isSelected: boolean;
+  isConnectorTarget: boolean;
+  shapeRefs: React.MutableRefObject<Record<string, Konva.Group>>;
+}
+
+const MemoCircleObj = React.memo<MemoCircleProps>(({
+  obj, isSelected, isConnectorTarget, shapeRefs,
+  onDragMove, onDragEnd, onSelect, onContextMenu, onTransformEnd, onCursorMove,
+}) => {
+  const w = obj.width;
+  const h = obj.height;
+  const r = Math.min(w, h) / 2;
+  const rot = obj.rotation ?? 0;
+
+  return (
+    <Group
+      key={obj.id}
+      ref={(el) => { if (el) shapeRefs.current[obj.id] = el; }}
+      x={obj.x + w / 2}
+      y={obj.y + h / 2}
+      offsetX={w / 2}
+      offsetY={h / 2}
+      rotation={rot}
+      draggable
+      onDragMove={(e) => {
+        const newX = e.target.x() - w / 2;
+        const newY = e.target.y() - h / 2;
+        onDragMove(obj.id, newX, newY);
+        const stage = e.target.getStage();
+        if (stage) {
+          const point = stage.getRelativePointerPosition();
+          if (point) onCursorMove(point.x, point.y);
+        }
+        e.target.getLayer()?.batchDraw();
+      }}
+      onDragEnd={(e) => {
+        const newX = e.target.x() - w / 2;
+        const newY = e.target.y() - h / 2;
+        onDragEnd(obj.id, obj, newX, newY, e.target.rotation());
+        const stage = e.target.getStage();
+        if (stage) {
+          stage.setPointersPositions(e.evt);
+          const point = stage.getRelativePointerPosition();
+          if (point) onCursorMove(point.x, point.y);
+        }
+      }}
+      onTransformEnd={(e) => {
+        const node = e.target;
+        onTransformEnd(obj, node.scaleX(), node.scaleY(), node.rotation(), node.x(), node.y());
+        node.scaleX(1);
+        node.scaleY(1);
+      }}
+      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onContextMenu={(e) => onContextMenu(e, obj.id)}
+    >
+      <Circle
+        x={-w / 2 + r}
+        y={-h / 2 + r}
+        radius={r}
+        fill={obj.color}
+        shadowColor="rgba(0,0,0,0.12)"
+        shadowBlur={6}
+        shadowOffsetY={2}
+        shadowOpacity={0.4}
+        stroke={isSelected ? "#1e293b" : isConnectorTarget ? "#3b82f6" : undefined}
+        strokeWidth={isSelected ? 2.5 : isConnectorTarget ? 3 : 0}
+      />
+    </Group>
+  );
+});
+
+// ============= Memoized Line =============
+
+interface MemoLineProps extends ObjectHandlers {
+  obj: ShapeType;
+  isSelected: boolean;
+  shapeRefs: React.MutableRefObject<Record<string, Konva.Group>>;
+  onLineUpdate: (obj: BoardObject) => void;
+}
+
+const MemoLineObj = React.memo<MemoLineProps>(({
+  obj, isSelected, shapeRefs,
+  onDragMove, onDragEnd, onSelect, onContextMenu, onCursorMove, onLineUpdate,
+}) => {
+  const w = obj.width;
+  const h = obj.height;
+  const rot = obj.rotation ?? 0;
+
+  return (
+    <Group
+      key={obj.id}
+      ref={(el) => { if (el) shapeRefs.current[obj.id] = el; }}
+      x={obj.x}
+      y={obj.y}
+      rotation={rot}
+      draggable
+      onDragMove={(e) => {
+        const newX = e.target.x();
+        const newY = e.target.y();
+        onDragMove(obj.id, newX, newY);
+        const stage = e.target.getStage();
+        if (stage) {
+          const point = stage.getRelativePointerPosition();
+          if (point) onCursorMove(point.x, point.y);
+        }
+        e.target.getLayer()?.batchDraw();
+      }}
+      onDragEnd={(e) => {
+        const newX = e.target.x();
+        const newY = e.target.y();
+        onDragEnd(obj.id, obj, newX, newY, e.target.rotation());
+        const stage = e.target.getStage();
+        if (stage) {
+          stage.setPointersPositions(e.evt);
+          const point = stage.getRelativePointerPosition();
+          if (point) onCursorMove(point.x, point.y);
+        }
+      }}
+      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onContextMenu={(e) => onContextMenu(e, obj.id)}
+    >
+      <Line
+        points={[0, 0, w, h]}
+        stroke={isSelected ? "#1e293b" : (obj.color || "#3b82f6")}
+        strokeWidth={isSelected ? 4 : 3}
+        lineCap="round"
+        shadowColor="rgba(0,0,0,0.1)"
+        shadowBlur={4}
+        shadowOffsetY={1}
+        shadowOpacity={0.3}
+      />
+      {isSelected && (
+        <>
+          <Circle
+            x={0}
+            y={0}
+            radius={12}
+            fill="#3b82f6"
+            stroke="#ffffff"
+            strokeWidth={2}
+            draggable
+            onDragMove={(e) => {
+              const newStartX = obj.x + e.target.x();
+              const newStartY = obj.y + e.target.y();
+              const newWidth = obj.x + obj.width - newStartX;
+              const newHeight = obj.y + obj.height - newStartY;
+              onLineUpdate({ ...obj, x: newStartX, y: newStartY, width: newWidth, height: newHeight });
+            }}
+          />
+          <Circle
+            x={w}
+            y={h}
+            radius={12}
+            fill="#3b82f6"
+            stroke="#ffffff"
+            strokeWidth={2}
+            draggable
+            onDragMove={(e) => {
+              const newEndX = obj.x + e.target.x();
+              const newEndY = obj.y + e.target.y();
+              onLineUpdate({ ...obj, width: newEndX - obj.x, height: newEndY - obj.y });
+            }}
+          />
+        </>
+      )}
+    </Group>
+  );
+});
+
+// ============= Memoized Connector =============
+
+interface MemoConnectorProps {
+  obj: BoardObject;
+  startPt: { x: number; y: number };
+  endPt: { x: number; y: number };
+  connectorStyle: string;
+  connectorColor: string;
+  strokeWidth: number;
+  arrowEnd: boolean;
+  isSelected: boolean;
+  shapeRefs: React.MutableRefObject<Record<string, Konva.Group>>;
+  onSelect: (id: string) => void;
+  onContextMenu: (e: Konva.KonvaEventObject<PointerEvent>, id: string) => void;
+}
+
+const MemoConnector = React.memo<MemoConnectorProps>(({
+  obj, startPt, endPt, connectorStyle: cStyle, connectorColor, strokeWidth: sw,
+  arrowEnd, isSelected, shapeRefs, onSelect, onContextMenu,
+}) => {
+  let points: number[];
+  if (cStyle === "curved") {
+    points = calculateCurvedPath(startPt, endPt);
+  } else if (cStyle === "orthogonal") {
+    points = calculateOrthogonalPath(startPt, endPt);
+  } else {
+    points = [startPt.x, startPt.y, endPt.x, endPt.y];
+  }
+
+  return (
+    <Group
+      key={obj.id}
+      ref={(el) => { if (el) shapeRefs.current[obj.id] = el; }}
+      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onContextMenu={(e) => onContextMenu(e, obj.id)}
+    >
+      <Line
+        points={points}
+        stroke={isSelected ? "#1e40af" : (connectorColor || "#333")}
+        strokeWidth={isSelected ? 4 : (sw || 2)}
+        lineCap="round"
+        lineJoin="round"
+        hitStrokeWidth={10}
+        tension={cStyle === "curved" ? 0.5 : 0}
+        bezier={cStyle === "curved"}
+      />
+      {arrowEnd && (
+        <Line
+          points={[
+            endPt.x - 10 * Math.cos(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) - Math.PI / 6),
+            endPt.y - 10 * Math.sin(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) - Math.PI / 6),
+            endPt.x,
+            endPt.y,
+            endPt.x - 10 * Math.cos(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) + Math.PI / 6),
+            endPt.y - 10 * Math.sin(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) + Math.PI / 6),
+          ]}
+          stroke={isSelected ? "#1e40af" : (connectorColor || "#333")}
+          strokeWidth={isSelected ? 4 : (sw || 2)}
+          lineCap="round"
+          lineJoin="round"
+        />
+      )}
+    </Group>
+  );
+});
+
+// ================================================================
+
 export function Board({
   objects,
   cursors,
@@ -245,6 +772,166 @@ export function Board({
     currentY: number;
   } | null>(null);
 
+  // ============= Refs for unstable props (stable callback pattern) =============
+  const onObjectUpdateRef = useRef(onObjectUpdate);
+  onObjectUpdateRef.current = onObjectUpdate;
+  const onObjectDragRef = useRef(onObjectDrag);
+  onObjectDragRef.current = onObjectDrag;
+  const onObjectDragEndRef = useRef(onObjectDragEnd);
+  onObjectDragEndRef.current = onObjectDragEnd;
+  const onCursorMoveRef = useRef(onCursorMove);
+  onCursorMoveRef.current = onCursorMove;
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+
+  // ============= Object lookup Map for O(1) access =============
+  const objectMap = useMemo(
+    () => new Map(objects.map(o => [o.id, o])),
+    [objects]
+  );
+
+  // ============= Throttled drag state (connectors only need ~15fps) =============
+  const draggingObjectRef = useRef<{ id: string; x: number; y: number } | null>(null);
+  const dragRafRef = useRef<number | null>(null);
+  const flushDragState = useCallback(() => {
+    setDraggingObject(draggingObjectRef.current);
+    dragRafRef.current = null;
+  }, []);
+
+  // ============= Stable callbacks for memoized children =============
+  const stableOnDragMove = useCallback((id: string, x: number, y: number) => {
+    draggingObjectRef.current = { id, x, y };
+    // Throttle React state updates to ~15fps for connector re-renders
+    if (!dragRafRef.current) {
+      dragRafRef.current = requestAnimationFrame(flushDragState);
+    }
+    onObjectDragRef.current?.(id, x, y);
+  }, [flushDragState]);
+
+  const stableOnDragEnd = useCallback((id: string, obj: BoardObject, x: number, y: number, rotation: number) => {
+    draggingObjectRef.current = null;
+    if (dragRafRef.current) { cancelAnimationFrame(dragRafRef.current); dragRafRef.current = null; }
+    setDraggingObject(null);
+    onObjectDragEndRef.current?.(id, x, y);
+    if (obj.type !== 'connector') {
+      onObjectUpdateRef.current({ ...obj, x, y, rotation });
+    }
+  }, []);
+
+  const stableOnSelect = useCallback((id: string) => {
+    onSelectRef.current([id]);
+  }, []);
+
+  const stableOnTransformEnd = useCallback((obj: BoardObject, scaleX: number, scaleY: number, rotation: number, nodeX: number, nodeY: number) => {
+    if (obj.type === 'connector' || obj.type === 'textbox') return;
+    const minSize = obj.type === 'sticky' ? 50 : 20;
+    const newWidth = Math.max(minSize, obj.width * scaleX);
+    const newHeight = Math.max(minSize, obj.height * scaleY);
+    const newX = nodeX - newWidth / 2;
+    const newY = nodeY - newHeight / 2;
+    onObjectUpdateRef.current({ ...obj, x: newX, y: newY, width: newWidth, height: newHeight, rotation });
+  }, []);
+
+  const stableOnCursorMove = useCallback((x: number, y: number) => {
+    const now = performance.now();
+    if (now - lastCursorEmitRef.current < 33) return;
+    lastCursorEmitRef.current = now;
+    onCursorMoveRef.current(x, y);
+  }, []);
+
+  const stableOnStickyDragStart = useCallback((id: string) => {
+    setDraggingStickyId(id);
+  }, []);
+
+  const stableOnStickyDragEnd = useCallback((id: string, obj: BoardObject, x: number, y: number, rotation: number) => {
+    draggingObjectRef.current = null;
+    if (dragRafRef.current) { cancelAnimationFrame(dragRafRef.current); dragRafRef.current = null; }
+    setDraggingObject(null);
+    setDraggingStickyId(null);
+    onObjectDragEndRef.current?.(id, x, y);
+    if (obj.type !== 'connector') {
+      onObjectUpdateRef.current({ ...obj, x, y, rotation });
+    }
+  }, []);
+
+  const stableOnStickyDblClick = useCallback((id: string, text: string) => {
+    setEditingStickyId(id);
+    setEditingStickyText(text === "New note" ? "" : text);
+  }, []);
+
+  const stableOnStickyHoverEnter = useCallback((id: string) => {
+    setHoveredStickyId(id);
+  }, []);
+
+  const stableOnStickyHoverLeave = useCallback(() => {
+    setHoveredStickyId(null);
+  }, []);
+
+  const stableOnLineUpdate = useCallback((obj: BoardObject) => {
+    onObjectUpdateRef.current(obj);
+  }, []);
+
+  // ============= Memoized sorted objects =============
+  const sortedObjects = useMemo(
+    () => [...objects].sort((a, b) => ((a as any).zIndex ?? 0) - ((b as any).zIndex ?? 0)),
+    [objects]
+  );
+
+  // ============= Viewport culling — only render visible objects =============
+  // Track real viewport in a ref so panning never causes re-renders.
+  // Only bump cullVersion when the viewport drifts far enough that objects
+  // might enter / leave the visible area.
+  const viewportRef = useRef({ x: 0, y: 0, scale: 1 });
+  const lastCullPosRef = useRef({ x: 0, y: 0, scale: 1 });
+  const [cullVersion, setCullVersion] = useState(0);
+
+  // How far (in screen px) the viewport must drift before we re-cull.
+  // Large value = fewer re-renders, small = tighter culling.
+  const CULL_DRIFT = 400;
+
+  const maybeBumpCull = useCallback(() => {
+    const { x, y, scale: s } = viewportRef.current;
+    const last = lastCullPosRef.current;
+    const dx = Math.abs(x - last.x);
+    const dy = Math.abs(y - last.y);
+    const ds = Math.abs(s - last.scale);
+    if (dx > CULL_DRIFT || dy > CULL_DRIFT || ds > 0.3) {
+      lastCullPosRef.current = { x, y, scale: s };
+      setCullVersion(v => v + 1);
+    }
+  }, []);
+
+  const visibleObjects = useMemo(() => {
+    // Read from the ref (latest viewport) whenever cullVersion changes
+    const { x: posX, y: posY, scale: s } = viewportRef.current;
+    const vx = -posX / s;
+    const vy = -posY / s;
+    const vw = window.innerWidth / s;
+    const vh = window.innerHeight / s;
+
+    // Padding must be >= CULL_DRIFT/scale so objects that enter
+    // during the drift window are already rendered.
+    const pad = Math.max(400, CULL_DRIFT / s + 100);
+    const left = vx - pad;
+    const top = vy - pad;
+    const right = vx + vw + pad;
+    const bottom = vy + vh + pad;
+
+    return sortedObjects.filter(obj => {
+      if (obj.type === 'connector') return true;
+
+      const ox = obj.x;
+      const oy = obj.y;
+      const ow = obj.type === 'sticky' ? obj.width :
+                 (obj.type === 'rectangle' || obj.type === 'circle' || obj.type === 'line') ? obj.width : 200;
+      const oh = obj.type === 'sticky' ? obj.height :
+                 (obj.type === 'rectangle' || obj.type === 'circle' || obj.type === 'line') ? obj.height : 100;
+
+      return !(ox + ow < left || ox > right || oy + oh < top || oy > bottom);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortedObjects, cullVersion]);
+
   const handleObjectContextMenu = useCallback((e: Konva.KonvaEventObject<PointerEvent>, objId: string) => {
     e.evt.preventDefault();
     e.cancelBubble = true;
@@ -264,12 +951,23 @@ export function Board({
     });
   }, []);
 
+  // Track viewport position during pan — ref only, no React state updates during drag
+  const handleStageDragMove = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
+    const stage = e.target.getStage();
+    if (!stage || e.target !== stage) return;
+    viewportRef.current = { x: stage.x(), y: stage.y(), scale: stage.scaleX() };
+    maybeBumpCull();
+  }, [maybeBumpCull]);
+
   const handleStageDragEnd = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
     const stage = e.target.getStage();
     if (stage && e.target === stage) {
-      setPosition({ x: e.target.x(), y: e.target.y() });
+      const pos = { x: e.target.x(), y: e.target.y() };
+      setPosition(pos);
+      viewportRef.current = { ...viewportRef.current, ...pos };
+      maybeBumpCull();
     }
-  }, []);
+  }, [maybeBumpCull]);
 
   useEffect(() => {
     if (editingStickyId) {
@@ -290,9 +988,8 @@ export function Board({
     const tr = trRef.current;
     if (!tr || selectedIds.length === 0) return;
     const attach = () => {
-      // Filter out connectors from transformation (they can be selected but not transformed)
       const transformableIds = selectedIds.filter(id => {
-        const obj = objects.find(o => o.id === id);
+        const obj = objectMap.get(id);
         return obj && obj.type !== "connector";
       });
       const nodes = transformableIds.map((id) => shapeRefs.current[id]).filter(Boolean) as Konva.Node[];
@@ -319,17 +1016,32 @@ export function Board({
     const clamped = Math.min(Math.max(0.2, newScale), 5);
     setScale(clamped);
     const mousePointTo = { x: (pointer.x - stage.x()) / oldScale, y: (pointer.y - stage.y()) / oldScale };
-    setPosition({ x: pointer.x - mousePointTo.x * clamped, y: pointer.y - mousePointTo.y * clamped });
-  }, []);
+    const newPos = { x: pointer.x - mousePointTo.x * clamped, y: pointer.y - mousePointTo.y * clamped };
+    setPosition(newPos);
+    viewportRef.current = { x: newPos.x, y: newPos.y, scale: clamped };
+    maybeBumpCull();
+  }, [maybeBumpCull]);
+
+  // Throttled cursor emission — cap at ~30fps to avoid flooding
+  const lastCursorEmitRef = useRef(0);
+  const throttledCursorMove = useCallback(
+    (x: number, y: number) => {
+      const now = performance.now();
+      if (now - lastCursorEmitRef.current < 33) return; // ~30fps
+      lastCursorEmitRef.current = now;
+      onCursorMoveRef.current(x, y);
+    },
+    []
+  );
 
   const handlePointerMove = useCallback(
     (e: Konva.KonvaEventObject<PointerEvent>) => {
       const stage = e.target.getStage();
       if (!stage) return;
-      const point = stage.getStage().getRelativePointerPosition();
-      if (point) onCursorMove(point.x, point.y);
+      const point = stage.getRelativePointerPosition();
+      if (point) throttledCursorMove(point.x, point.y);
     },
-    [onCursorMove]
+    [throttledCursorMove]
   );
 
   const handleStageMouseDown = useCallback(
@@ -384,7 +1096,7 @@ export function Board({
         if (!pos) return;
         
         const targetObj = findObjectAtPoint(objects, pos);
-        const startObj = objects.find(o => o.id === drawingConnector.startObjectId);
+        const startObj = drawingConnector.startObjectId ? objectMap.get(drawingConnector.startObjectId) ?? null : null;
         
         let startAnchor: "top" | "right" | "bottom" | "left" | "center" = "center";
         let endAnchor: "top" | "right" | "bottom" | "left" | "center" = "center";
@@ -523,7 +1235,7 @@ export function Board({
         if (!pos) return;
         
         const targetObj = findObjectAtPoint(objects, pos);
-        const startObj = objects.find(o => o.id === drawingConnector.startObjectId);
+        const startObj = drawingConnector.startObjectId ? objectMap.get(drawingConnector.startObjectId) ?? null : null;
         
         let startAnchor: "top" | "right" | "bottom" | "left" | "center" = "center";
         let endAnchor: "top" | "right" | "bottom" | "left" | "center" = "center";
@@ -614,7 +1326,7 @@ export function Board({
     [tool, onSelect, onObjectCreate, selectedStickyColor, selectedShapeColor, drawingConnector, objects, contextMenu, connectorStyle]
   );
 
-  const stickyObj = editingStickyId ? objects.find((o): o is Extract<BoardObject, { type: "sticky" }> => o.type === "sticky" && o.id === editingStickyId) : null;
+  const stickyObj = editingStickyId ? (objectMap.get(editingStickyId) as StickyNote | undefined) ?? null : null;
   const stage = stageRef.current;
   const containerRect = (stage && "getContainer" in stage ? (stage as { getContainer: () => HTMLElement }).getContainer() : null)?.getBoundingClientRect();
   const stickyEditRect =
@@ -629,7 +1341,7 @@ export function Board({
 
   const handleStickyBlur = useCallback(() => {
     if (!editingStickyId) return;
-    const obj = objects.find((o): o is Extract<BoardObject, { type: "sticky" }> => o.type === "sticky" && o.id === editingStickyId);
+    const obj = editingStickyId ? (objectMap.get(editingStickyId) as StickyNote | undefined) : undefined;
     if (obj) onObjectUpdate({ ...obj, text: editingStickyText });
     setEditingStickyId(null);
   }, [editingStickyId, editingStickyText, objects, onObjectUpdate]);
@@ -751,13 +1463,6 @@ export function Board({
       draggable={tool === "pan" && !selectionBox}
       style={{ position: 'relative', zIndex: 1 }}
       onWheel={handleWheel}
-      onMouseMove={(e) => {
-        // Track cursor movement for presence
-        const stage = e.target.getStage();
-        if (!stage) return;
-        const point = stage.getRelativePointerPosition();
-        if (point) onCursorMove(point.x, point.y);
-      }}
       onPointerMove={(e) => {
         handlePointerMove(e);
         handleStageMouseMove(e);
@@ -773,7 +1478,7 @@ export function Board({
           setHoveredObjectId(targetObj?.id || null);
           
           // Update drawing connector with smart anchoring
-          const startObj = objects.find(o => o.id === drawingConnector.startObjectId);
+          const startObj = drawingConnector.startObjectId ? objectMap.get(drawingConnector.startObjectId) ?? null : null;
           let startPoint = drawingConnector.startPoint;
           let endPoint = pos;
           
@@ -804,6 +1509,7 @@ export function Board({
       onClick={handleStageClick}
       onContextMenu={handleStageContextMenu}
       onDragStart={() => {}}
+      onDragMove={handleStageDragMove}
       onDragEnd={handleStageDragEnd}
     >
       <Layer>
@@ -832,617 +1538,132 @@ export function Board({
             listening={false}
           />
         )}
-        {[...objects].sort((a, b) => ((a as any).zIndex ?? 0) - ((b as any).zIndex ?? 0)).map((obj) => {
+        {visibleObjects.map((obj) => {
           if (obj.type === "sticky") {
-            const w = obj.width;
-            const h = obj.height;
-            const rot = obj.rotation ?? 0;
-            const isHovered = hoveredStickyId === obj.id;
+            const stickyObj = obj as StickyNote;
             return (
-              <Group
+              <MemoStickyNote
                 key={obj.id}
-                ref={(el) => {
-                  if (el) shapeRefs.current[obj.id] = el;
-                }}
-                x={obj.x + w / 2}
-                y={obj.y + h / 2}
-                offsetX={w / 2}
-                offsetY={h / 2}
-                rotation={rot}
-                draggable
-                onDragStart={() => {
-                  setDraggingStickyId(obj.id);
-                }}
-                onDragMove={(e) => {
-                  const newX = e.target.x() - w / 2;
-                  const newY = e.target.y() - h / 2;
-                  setDraggingObject({ id: obj.id, x: newX, y: newY });
-                  // Broadcast drag position to other users
-                  if (onObjectDrag) {
-                    onObjectDrag(obj.id, newX, newY);
-                  }
-                  // Also emit cursor position during drag
-                  const stage = e.target.getStage();
-                  if (stage) {
-                    const point = stage.getRelativePointerPosition();
-                    if (point) onCursorMove(point.x, point.y);
-                  }
-                  // Force re-render to update connectors in real-time
-                  e.target.getLayer()?.batchDraw();
-                }}
-                onDragEnd={(e) => {
-                  const newX = e.target.x() - w / 2;
-                  const newY = e.target.y() - h / 2;
-                  setDraggingObject(null);
-                  setDraggingStickyId(null);
-                  // Broadcast drag end to other users
-                  onObjectDragEnd?.(obj.id, newX, newY);
-                  onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
-                  // Force stage to update pointer position
-                  const stage = e.target.getStage();
-                  if (stage) {
-                    stage.setPointersPositions(e.evt);
-                    const point = stage.getRelativePointerPosition();
-                    if (point) onCursorMove(point.x, point.y);
-                  }
-                }}
-                onClick={(e) => {
-                  e.cancelBubble = true;
-                  onSelect([obj.id]);
-                }}
-                onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
-                onDblClick={(e) => {
-                  e.cancelBubble = true;
-                  setEditingStickyId(obj.id);
-                  setEditingStickyText(obj.text === "New note" ? "" : obj.text);
-                }}
-                onPointerEnter={() => setHoveredStickyId(obj.id)}
-                onPointerLeave={() => setHoveredStickyId(null)}
-                onTransformEnd={(e) => {
-                  const node = e.target;
-                  const scaleX = node.scaleX();
-                  const scaleY = node.scaleY();
-                  
-                  // Reset scale to 1 and apply it to width/height
-                  node.scaleX(1);
-                  node.scaleY(1);
-                  
-                  const newWidth = Math.max(50, w * scaleX);
-                  const newHeight = Math.max(50, h * scaleY);
-                  const newX = node.x() - newWidth / 2;
-                  const newY = node.y() - newHeight / 2;
-                  
-                  onObjectUpdate({
-                    ...obj,
-                    x: newX,
-                    y: newY,
-                    width: newWidth,
-                    height: newHeight,
-                    rotation: node.rotation()
-                  });
-                }}
-              >
-                <Rect width={w} height={h} fill="transparent" listening />
-                {!isHovered ? (
-                  <Rect 
-                    width={w} 
-                    height={h} 
-                    fill={obj.color} 
-                    cornerRadius={6} 
-                    shadowColor="rgba(0,0,0,0.15)"
-                    shadowBlur={8}
-                    shadowOffsetX={0}
-                    shadowOffsetY={3}
-                    shadowOpacity={0.5}
-                    stroke={selectedIds.includes(obj.id) ? "#1e293b" : hoveredObjectId === obj.id && drawingConnector ? "#3b82f6" : undefined} 
-                    strokeWidth={selectedIds.includes(obj.id) ? 2.5 : hoveredObjectId === obj.id && drawingConnector ? 3 : 0} 
-                  />
-                ) : (
-                  <Shape
-                    sceneFunc={(ctx) => {
-                      const cr = 4;
-                      const cut = 22;
-                      ctx.beginPath();
-                      ctx.moveTo(0, h - cr);
-                      ctx.lineTo(0, cr);
-                      ctx.quadraticCurveTo(0, 0, cr, 0);
-                      ctx.lineTo(w - cr, 0);
-                      ctx.quadraticCurveTo(w, 0, w, cr);
-                      ctx.lineTo(w, h - cut);
-                      ctx.lineTo(w - cut, h);
-                      ctx.lineTo(cr, h);
-                      ctx.quadraticCurveTo(0, h, 0, h - cr);
-                      ctx.closePath();
-                      // Add shadow
-                      ctx.save();
-                      ctx.shadowColor = "rgba(0,0,0,0.15)";
-                      ctx.shadowBlur = 8;
-                      ctx.shadowOffsetX = 0;
-                      ctx.shadowOffsetY = 3;
-                      ctx.fillStyle = obj.color;
-                      ctx.fill();
-                      ctx.restore();
-                      if (selectedIds.includes(obj.id)) {
-                        ctx.strokeStyle = "#1e293b";
-                        ctx.lineWidth = 2.5;
-                        ctx.stroke();
-                      } else if (hoveredObjectId === obj.id && drawingConnector) {
-                        ctx.strokeStyle = "#3b82f6";
-                        ctx.lineWidth = 3;
-                        ctx.stroke();
-                      }
-                    }}
-                    listening={false}
-                  />
-                )}
-                {/* Modern pin with gradient and shadow */}
-                {draggingStickyId !== obj.id && (
-                  <Group x={w / 2} y={6} listening={false}>
-                    <Circle 
-                      radius={6} 
-                      fillLinearGradientStartPoint={{ x: -6, y: -6 }}
-                      fillLinearGradientEndPoint={{ x: 6, y: 6 }}
-                      fillLinearGradientColorStops={[0, "#ef4444", 1, "#dc2626"]}
-                      stroke="#7f1d1d" 
-                      strokeWidth={0.5}
-                      shadowColor="rgba(0,0,0,0.3)"
-                      shadowBlur={3}
-                      shadowOffsetY={1}
-                    />
-                    <Circle radius={2} fill="#fca5a5" y={-1} />
-                    <Line points={[0, 6, 0, 16]} stroke="#7f1d1d" strokeWidth={2.5} lineCap="round" listening={false} />
-                  </Group>
-                )}
-                {editingStickyId !== obj.id && (
-                  <Text 
-                    text={obj.text} 
-                    width={w - 16} 
-                    height={h - 16} 
-                    x={8} 
-                    y={26} 
-                    fontSize={14 / scale} 
-                    fontFamily="system-ui, -apple-system, sans-serif"
-                    fontStyle="500"
-                    fill="#1f2937"
-                    wrap="word" 
-                    listening={false} 
-                  />
-                )}
-                {isHovered && (() => {
-                  const size = 22;
-                  const lift = 3;
-                  const tipX = w - 6 - lift;
-                  const tipY = h - size - lift;
-                  const rightX = w - lift;
-                  const rightY = h - 10 - lift;
-                  const bottomX = w - 10 - lift;
-                  const bottomY = h - lift;
-                  const lighten = (hex: string, pct: number) => {
-                    const num = parseInt(hex.slice(1), 16);
-                    if (isNaN(num)) return hex;
-                    const r = Math.min(255, ((num >> 16) & 0xff) + 255 * pct);
-                    const g = Math.min(255, ((num >> 8) & 0xff) + 255 * pct);
-                    const b = Math.min(255, (num & 0xff) + 255 * pct);
-                    return `rgb(${r | 0},${g | 0},${b | 0})`;
-                  };
-                  const underside = obj.color.startsWith("#") ? lighten(obj.color, 0.1) : obj.color;
-                  return (
-                    <Shape
-                      sceneFunc={(ctx) => {
-                        ctx.beginPath();
-                        ctx.moveTo(tipX, tipY);
-                        ctx.lineTo(rightX, rightY);
-                        ctx.quadraticCurveTo(w - 12, h - 12, bottomX, bottomY);
-                        ctx.closePath();
-                        ctx.save();
-                        ctx.shadowColor = "rgba(0,0,0,0.18)";
-                        ctx.shadowBlur = 6;
-                        ctx.shadowOffsetX = 1;
-                        ctx.shadowOffsetY = 2;
-                        ctx.fillStyle = underside;
-                        ctx.fill();
-                        ctx.restore();
-                      }}
-                      listening={false}
-                    />
-                  );
-                })()}
-              </Group>
+                obj={stickyObj}
+                isSelected={selectedIds.includes(obj.id)}
+                isHovered={hoveredStickyId === obj.id}
+                isDragging={draggingStickyId === obj.id}
+                isEditing={editingStickyId === obj.id}
+                isConnectorTarget={hoveredObjectId === obj.id && !!drawingConnector}
+                scale={scale}
+                shapeRefs={shapeRefs}
+                onDragMove={stableOnDragMove}
+                onDragEnd={stableOnDragEnd}
+                onStickyDragStart={stableOnStickyDragStart}
+                onStickyDragEnd={stableOnStickyDragEnd}
+                onSelect={stableOnSelect}
+                onContextMenu={handleObjectContextMenu}
+                onDblClick={stableOnStickyDblClick}
+                onHoverEnter={stableOnStickyHoverEnter}
+                onHoverLeave={stableOnStickyHoverLeave}
+                onTransformEnd={stableOnTransformEnd}
+                onCursorMove={stableOnCursorMove}
+              />
             );
           }
           if (obj.type === "rectangle") {
-            const w = obj.width;
-            const h = obj.height;
-            const rot = obj.rotation ?? 0;
-            const isSelected = selectedIds.includes(obj.id);
+            const rectObj = obj as ShapeType;
             return (
-              <Group
+              <MemoRectangle
                 key={obj.id}
-                ref={(el) => {
-                  if (el) shapeRefs.current[obj.id] = el;
-                }}
-                x={obj.x + w / 2}
-                y={obj.y + h / 2}
-                offsetX={w / 2}
-                offsetY={h / 2}
-                rotation={rot}
-                draggable
-                onDragMove={(e) => {
-                  const newX = e.target.x() - w / 2;
-                  const newY = e.target.y() - h / 2;
-                  setDraggingObject({ id: obj.id, x: newX, y: newY });
-                  // Broadcast drag position to other users
-                  if (onObjectDrag) {
-                    onObjectDrag(obj.id, newX, newY);
-                  }
-                  // Also emit cursor position during drag
-                  const stage = e.target.getStage();
-                  if (stage) {
-                    const point = stage.getRelativePointerPosition();
-                    if (point) onCursorMove(point.x, point.y);
-                  }
-                  // Force re-render to update connectors in real-time
-                  e.target.getLayer()?.batchDraw();
-                }}
-                onDragEnd={(e) => {
-                  const newX = e.target.x() - w / 2;
-                  const newY = e.target.y() - h / 2;
-                  setDraggingObject(null);
-                  // Broadcast drag end to other users
-                  onObjectDragEnd?.(obj.id, newX, newY);
-                  onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
-                  // Force stage to update pointer position
-                  const stage = e.target.getStage();
-                  if (stage) {
-                    stage.setPointersPositions(e.evt);
-                    const point = stage.getRelativePointerPosition();
-                    if (point) onCursorMove(point.x, point.y);
-                  }
-                }}
-                onTransformEnd={(e) => {
-                  const node = e.target;
-                  const scaleX = node.scaleX();
-                  const scaleY = node.scaleY();
-                  
-                  // Reset scale to 1 and apply it to width/height
-                  node.scaleX(1);
-                  node.scaleY(1);
-                  
-                  const newWidth = Math.max(20, w * scaleX);
-                  const newHeight = Math.max(20, h * scaleY);
-                  const newX = node.x() - newWidth / 2;
-                  const newY = node.y() - newHeight / 2;
-                  
-                  onObjectUpdate({
-                    ...obj,
-                    x: newX,
-                    y: newY,
-                    width: newWidth,
-                    height: newHeight,
-                    rotation: node.rotation()
-                  });
-                }}
-                onClick={(e) => {
-                  e.cancelBubble = true;
-                  onSelect([obj.id]);
-                }}
-                onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
-              >
-                <Rect
-                  x={-w / 2}
-                  y={-h / 2}
-                  width={w}
-                  height={h}
-                  fill={obj.color}
-                  cornerRadius={8}
-                  shadowColor="rgba(0,0,0,0.12)"
-                  shadowBlur={6}
-                  shadowOffsetY={2}
-                  shadowOpacity={0.4}
-                  stroke={isSelected ? "#1e293b" : hoveredObjectId === obj.id && drawingConnector ? "#3b82f6" : undefined}
-                  strokeWidth={isSelected ? 2.5 : hoveredObjectId === obj.id && drawingConnector ? 3 : 0}
-                />
-              </Group>
+                obj={rectObj}
+                isSelected={selectedIds.includes(obj.id)}
+                isConnectorTarget={hoveredObjectId === obj.id && !!drawingConnector}
+                shapeRefs={shapeRefs}
+                onDragMove={stableOnDragMove}
+                onDragEnd={stableOnDragEnd}
+                onSelect={stableOnSelect}
+                onContextMenu={handleObjectContextMenu}
+                onTransformEnd={stableOnTransformEnd}
+                onCursorMove={stableOnCursorMove}
+              />
             );
           }
           if (obj.type === "circle") {
-            const w = obj.width;
-            const h = obj.height;
-            const r = Math.min(w, h) / 2;
-            const rot = obj.rotation ?? 0;
-            const isSelected = selectedIds.includes(obj.id);
+            const circleObj = obj as ShapeType;
             return (
-              <Group
+              <MemoCircleObj
                 key={obj.id}
-                ref={(el) => {
-                  if (el) shapeRefs.current[obj.id] = el;
-                }}
-                x={obj.x + w / 2}
-                y={obj.y + h / 2}
-                offsetX={w / 2}
-                offsetY={h / 2}
-                rotation={rot}
-                draggable
-                onDragMove={(e) => {
-                  const newX = e.target.x() - w / 2;
-                  const newY = e.target.y() - h / 2;
-                  setDraggingObject({ id: obj.id, x: newX, y: newY });
-                  // Broadcast drag position to other users
-                  if (onObjectDrag) {
-                    onObjectDrag(obj.id, newX, newY);
-                  }
-                  // Also emit cursor position during drag
-                  const stage = e.target.getStage();
-                  if (stage) {
-                    const point = stage.getRelativePointerPosition();
-                    if (point) onCursorMove(point.x, point.y);
-                  }
-                  // Force re-render to update connectors in real-time
-                  e.target.getLayer()?.batchDraw();
-                }}
-                onDragEnd={(e) => {
-                  const newX = e.target.x() - w / 2;
-                  const newY = e.target.y() - h / 2;
-                  setDraggingObject(null);
-                  // Broadcast drag end to other users
-                  onObjectDragEnd?.(obj.id, newX, newY);
-                  onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
-                  // Force stage to update pointer position
-                  const stage = e.target.getStage();
-                  if (stage) {
-                    stage.setPointersPositions(e.evt);
-                    const point = stage.getRelativePointerPosition();
-                    if (point) onCursorMove(point.x, point.y);
-                  }
-                }}
-                onTransformEnd={(e) => {
-                  const node = e.target;
-                  const scaleX = node.scaleX();
-                  const scaleY = node.scaleY();
-                  
-                  // Reset scale to 1 and apply it to width/height
-                  node.scaleX(1);
-                  node.scaleY(1);
-                  
-                  const newWidth = Math.max(20, w * scaleX);
-                  const newHeight = Math.max(20, h * scaleY);
-                  const newX = node.x() - newWidth / 2;
-                  const newY = node.y() - newHeight / 2;
-                  
-                  onObjectUpdate({
-                    ...obj,
-                    x: newX,
-                    y: newY,
-                    width: newWidth,
-                    height: newHeight,
-                    rotation: node.rotation()
-                  });
-                }}
-                onClick={(e) => {
-                  e.cancelBubble = true;
-                  onSelect([obj.id]);
-                }}
-                onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
-              >
-                <Circle 
-                  x={-w / 2 + r} 
-                  y={-h / 2 + r} 
-                  radius={r} 
-                  fill={obj.color} 
-                  shadowColor="rgba(0,0,0,0.12)"
-                  shadowBlur={6}
-                  shadowOffsetY={2}
-                  shadowOpacity={0.4}
-                  stroke={isSelected ? "#1e293b" : hoveredObjectId === obj.id && drawingConnector ? "#3b82f6" : undefined} 
-                  strokeWidth={isSelected ? 2.5 : hoveredObjectId === obj.id && drawingConnector ? 3 : 0} 
-                />
-              </Group>
+                obj={circleObj}
+                isSelected={selectedIds.includes(obj.id)}
+                isConnectorTarget={hoveredObjectId === obj.id && !!drawingConnector}
+                shapeRefs={shapeRefs}
+                onDragMove={stableOnDragMove}
+                onDragEnd={stableOnDragEnd}
+                onSelect={stableOnSelect}
+                onContextMenu={handleObjectContextMenu}
+                onTransformEnd={stableOnTransformEnd}
+                onCursorMove={stableOnCursorMove}
+              />
             );
           }
           if (obj.type === "line") {
-            const w = obj.width;
-            const h = obj.height;
-            const rot = obj.rotation ?? 0;
-            const isSelected = selectedIds.includes(obj.id);
+            const lineObj = obj as ShapeType;
             return (
-              <Group
+              <MemoLineObj
                 key={obj.id}
-                ref={(el) => {
-                  if (el) shapeRefs.current[obj.id] = el;
-                }}
-                x={obj.x}
-                y={obj.y}
-                rotation={rot}
-                draggable
-                onDragMove={(e) => {
-                  const newX = e.target.x();
-                  const newY = e.target.y();
-                  setDraggingObject({ id: obj.id, x: newX, y: newY });
-                  // Broadcast drag position to other users
-                  onObjectDrag?.(obj.id, newX, newY);
-                  // Also emit cursor position during drag
-                  const stage = e.target.getStage();
-                  if (stage) {
-                    const point = stage.getRelativePointerPosition();
-                    if (point) onCursorMove(point.x, point.y);
-                  }
-                  // Force re-render to update connectors in real-time
-                  e.target.getLayer()?.batchDraw();
-                }}
-                onDragEnd={(e) => {
-                  const newX = e.target.x();
-                  const newY = e.target.y();
-                  setDraggingObject(null);
-                  // Broadcast drag end to other users
-                  onObjectDragEnd?.(obj.id, newX, newY);
-                  onObjectUpdate({ ...obj, x: newX, y: newY, rotation: e.target.rotation() });
-                  // Force stage to update pointer position
-                  const stage = e.target.getStage();
-                  if (stage) {
-                    stage.setPointersPositions(e.evt);
-                    const point = stage.getRelativePointerPosition();
-                    if (point) onCursorMove(point.x, point.y);
-                  }
-                }}
-                onClick={(e) => {
-                  e.cancelBubble = true;
-                  onSelect([obj.id]);
-                }}
-                onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
-              >
-                <Line 
-                  points={[0, 0, w, h]} 
-                  stroke={isSelected ? "#1e293b" : (obj.color || "#3b82f6")} 
-                  strokeWidth={isSelected ? 4 : 3} 
-                  lineCap="round"
-                  shadowColor="rgba(0,0,0,0.1)"
-                  shadowBlur={4}
-                  shadowOffsetY={1}
-                  shadowOpacity={0.3}
-                />
-                {isSelected && (
-                  <>
-                    {/* Start point handle */}
-                    <Circle
-                      x={0}
-                      y={0}
-                      radius={12}
-                      fill="#3b82f6"
-                      stroke="#ffffff"
-                      strokeWidth={2}
-                      draggable
-                      onDragMove={(e) => {
-                        const newStartX = obj.x + e.target.x();
-                        const newStartY = obj.y + e.target.y();
-                        const newWidth = obj.x + obj.width - newStartX;
-                        const newHeight = obj.y + obj.height - newStartY;
-                        onObjectUpdate({
-                          ...obj,
-                          x: newStartX,
-                          y: newStartY,
-                          width: newWidth,
-                          height: newHeight,
-                        });
-                      }}
-                    />
-                    {/* End point handle */}
-                    <Circle
-                      x={w}
-                      y={h}
-                      radius={12}
-                      fill="#3b82f6"
-                      stroke="#ffffff"
-                      strokeWidth={2}
-                      draggable
-                      onDragMove={(e) => {
-                        const newEndX = obj.x + e.target.x();
-                        const newEndY = obj.y + e.target.y();
-                        const newWidth = newEndX - obj.x;
-                        const newHeight = newEndY - obj.y;
-                        onObjectUpdate({
-                          ...obj,
-                          width: newWidth,
-                          height: newHeight,
-                        });
-                      }}
-                    />
-                  </>
-                )}
-              </Group>
+                obj={lineObj}
+                isSelected={selectedIds.includes(obj.id)}
+                shapeRefs={shapeRefs}
+                onDragMove={stableOnDragMove}
+                onDragEnd={stableOnDragEnd}
+                onSelect={stableOnSelect}
+                onContextMenu={handleObjectContextMenu}
+                onTransformEnd={stableOnTransformEnd}
+                onCursorMove={stableOnCursorMove}
+                onLineUpdate={stableOnLineUpdate}
+              />
             );
           }
-          // Render connectors
           if (obj.type === "connector") {
             const connector = obj as any;
             let startPt = connector.startPoint;
             let endPt = connector.endPoint;
-            
-            // If connected to objects, get their current positions using perimeter points
-            let startObj = connector.startObjectId ? objects.find(o => o.id === connector.startObjectId) : null;
-            let endObj = connector.endObjectId ? objects.find(o => o.id === connector.endObjectId) : null;
-            
-            // If an object is being dragged, use its temporary position
-            if (draggingObject && startObj && startObj.type !== "connector") {
-              if (startObj.id === draggingObject.id) {
-                startObj = { ...startObj, x: draggingObject.x, y: draggingObject.y };
-              }
+
+            let startObj = connector.startObjectId ? objectMap.get(connector.startObjectId) ?? null : null;
+            let endObj = connector.endObjectId ? objectMap.get(connector.endObjectId) ?? null : null;
+
+            if (draggingObject && startObj && startObj.type !== "connector" && startObj.id === draggingObject.id) {
+              startObj = { ...startObj, x: draggingObject.x, y: draggingObject.y };
             }
-            if (draggingObject && endObj && endObj.type !== "connector") {
-              if (endObj.id === draggingObject.id) {
-                endObj = { ...endObj, x: draggingObject.x, y: draggingObject.y };
-              }
+            if (draggingObject && endObj && endObj.type !== "connector" && endObj.id === draggingObject.id) {
+              endObj = { ...endObj, x: draggingObject.x, y: draggingObject.y };
             }
-            
+
             if (startObj && endObj) {
-              // Both objects exist - calculate optimal perimeter points
               const endCenter = getAnchorPoint(endObj, "center");
               const startCenter = getAnchorPoint(startObj, "center");
               startPt = getBestPerimeterPoint(startObj, endCenter);
               endPt = getBestPerimeterPoint(endObj, startCenter);
             } else if (startObj && !endObj) {
-              // Only start object exists
               startPt = getBestPerimeterPoint(startObj, endPt);
             } else if (!startObj && endObj) {
-              // Only end object exists
               endPt = getBestPerimeterPoint(endObj, startPt);
             }
-            
-            // Calculate path based on style
-            let points: number[];
-            const connectorStyle = connector.style || "straight";
-            
-            if (connectorStyle === "curved") {
-              points = calculateCurvedPath(startPt, endPt);
-            } else if (connectorStyle === "orthogonal") {
-              points = calculateOrthogonalPath(startPt, endPt);
-            } else {
-              points = [startPt.x, startPt.y, endPt.x, endPt.y];
-            }
-            
-            const isSelected = selectedIds.includes(obj.id);
-            
+
             return (
-              <Group 
+              <MemoConnector
                 key={obj.id}
-                ref={(el) => {
-                  if (el) shapeRefs.current[obj.id] = el;
-                }}
-                onClick={(e) => {
-                  e.cancelBubble = true;
-                  onSelect([obj.id]);
-                }}
-                onContextMenu={(e) => handleObjectContextMenu(e, obj.id)}
-              >
-                <Line
-                  points={points}
-                  stroke={isSelected ? "#1e40af" : (connector.color || "#333")}
-                  strokeWidth={isSelected ? 4 : (connector.strokeWidth || 2)}
-                  lineCap="round"
-                  lineJoin="round"
-                  hitStrokeWidth={10}
-                  tension={connectorStyle === "curved" ? 0.5 : 0}
-                  bezier={connectorStyle === "curved"}
-                />
-                {connector.arrowEnd && (
-                  <Line
-                    points={[
-                      endPt.x - 10 * Math.cos(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) - Math.PI / 6),
-                      endPt.y - 10 * Math.sin(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) - Math.PI / 6),
-                      endPt.x,
-                      endPt.y,
-                      endPt.x - 10 * Math.cos(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) + Math.PI / 6),
-                      endPt.y - 10 * Math.sin(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) + Math.PI / 6),
-                    ]}
-                    stroke={isSelected ? "#1e40af" : (connector.color || "#333")}
-                    strokeWidth={isSelected ? 4 : (connector.strokeWidth || 2)}
-                    lineCap="round"
-                    lineJoin="round"
-                  />
-                )}
-              </Group>
+                obj={obj}
+                startPt={startPt}
+                endPt={endPt}
+                connectorStyle={connector.style || "straight"}
+                connectorColor={connector.color || "#333"}
+                strokeWidth={connector.strokeWidth || 2}
+                arrowEnd={!!connector.arrowEnd}
+                isSelected={selectedIds.includes(obj.id)}
+                shapeRefs={shapeRefs}
+                onSelect={stableOnSelect}
+                onContextMenu={handleObjectContextMenu}
+              />
             );
           }
-          
+
           return null;
         })}
         {/* Show connector preview while drawing */}
@@ -1551,7 +1772,7 @@ export function Board({
           onMouseEnter={(e) => e.currentTarget.style.background = "#f3f4f6"}
           onMouseLeave={(e) => e.currentTarget.style.background = "white"}
           onClick={() => {
-            const obj = objects.find(o => o.id === contextMenu.objectId);
+            const obj = objectMap.get(contextMenu.objectId);
             if (obj) {
               // Start with center, will be updated to proper edge when target is selected
               setDrawingConnector({

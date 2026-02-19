@@ -11,6 +11,23 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   const dragThrottleRef = useRef<{ [key: string]: number }>({});
   const [objects, setObjects] = useState<BoardObject[]>([]);
   const [cursors, setCursors] = useState<Record<string, Cursor>>({});
+
+  // Batch cursor updates — collect incoming cursors and apply once per frame
+  const pendingCursorsRef = useRef<Record<string, Cursor>>({});
+  const cursorRafRef = useRef<number | null>(null);
+  const flushCursors = useCallback(() => {
+    const pending = pendingCursorsRef.current;
+    if (Object.keys(pending).length === 0) return;
+    setCursors(prev => ({ ...prev, ...pending }));
+    pendingCursorsRef.current = {};
+    cursorRafRef.current = null;
+  }, []);
+  const queueCursorUpdate = useCallback((sessionId: string, cursor: Cursor) => {
+    pendingCursorsRef.current[sessionId] = cursor;
+    if (!cursorRafRef.current) {
+      cursorRafRef.current = requestAnimationFrame(flushCursors);
+    }
+  }, [flushCursors]);
   const [presence, setPresence] = useState<{ userId: string; name: string }[]>([]);
   const [boardId, setBoardId] = useState<string | null>(null);
   const [presenceChannel, setPresenceChannel] = useState<any>(null);
@@ -94,16 +111,13 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
           // Add broadcast listener for real-time cursor updates
           .on('broadcast', { event: 'cursor-move' }, ({ payload }) => {
             if (payload.sessionId !== sessionId) {
-              setCursors(prev => ({
-                ...prev,
-                [payload.sessionId]: {
-                  id: payload.sessionId,
-                  userId: payload.userId,
-                  name: payload.name,
-                  x: payload.x,
-                  y: payload.y,
-                }
-              }));
+              queueCursorUpdate(payload.sessionId, {
+                id: payload.sessionId,
+                userId: payload.userId,
+                name: payload.name,
+                x: payload.x,
+                y: payload.y,
+              });
             }
           })
           // Add broadcast listener for real-time drag updates
@@ -209,17 +223,22 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   };
 
 
+  const cursorThrottleRef = useRef(0);
   const emitCursor = useCallback((x: number, y: number) => {
     if (!presenceChannel) return;
-    
-    // Use broadcast for instant cursor updates
+
+    // Throttle cursor emission to ~30fps
+    const now = Date.now();
+    if (now - cursorThrottleRef.current < 33) return;
+    cursorThrottleRef.current = now;
+
     presenceChannel.httpSend('cursor-move', {
       sessionId,
       userId,
       name: displayName,
       x,
       y,
-      timestamp: Date.now()
+      timestamp: now
     }).catch((error: any) => {
       console.error('Failed to broadcast cursor:', error);
     });
