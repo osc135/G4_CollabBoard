@@ -195,15 +195,31 @@ const tools: OpenAI.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'move_object',
+      description: 'Move a single existing object to a new absolute position. The x/y are ABSOLUTE board coordinates. Use for repositioning one or a few specific objects — NOT for bulk organization (use organize_board instead).',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'The ID of the object to move (from the CURRENT OBJECTS list)' },
+          x: { type: 'number', description: 'New absolute x position (board coordinates)' },
+          y: { type: 'number', description: 'New absolute y position (board coordinates)' },
+        },
+        required: ['id', 'x', 'y'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'organize_board',
-      description: 'Organize existing objects on the board',
+      description: 'Rearrange ALL objects on the board into a clean layout. Use this whenever the user asks to organize, arrange, tidy, sort, or lay out their board. This moves every object — much better than calling move_object many times.',
       parameters: {
         type: 'object',
         properties: {
           strategy: {
             type: 'string',
-            enum: ['grid', 'color', 'cluster'],
-            description: 'The organization strategy to use',
+            enum: ['grid', 'by_type', 'by_color'],
+            description: 'Layout strategy: "grid" = neat rows/columns, "by_type" = group stickies/rectangles/circles together, "by_color" = group by color',
           },
         },
         required: ['strategy'],
@@ -286,6 +302,8 @@ export class AIService {
         const parts = [`id:${o.id}`, `type:${o.type}`];
         if (a.x !== undefined) parts.push(`x:${a.x}`);
         if (a.y !== undefined) parts.push(`y:${a.y}`);
+        if (a.width !== undefined) parts.push(`w:${a.width}`);
+        if (a.height !== undefined) parts.push(`h:${a.height}`);
         if (a.text) parts.push(`text:"${a.text.slice(0, 40)}"`);
         if (a.color) parts.push(`color:${a.color}`);
         return parts.join(' ');
@@ -354,7 +372,9 @@ RESPONSE RULES:
 - If the user asks for something you cannot do with the available tools, say "Sorry, I'm unable to do that — I can create sticky notes, rectangles, circles, and lines, delete objects, or clear the board."
 - NEVER respond with just "I can help you with that" — either create the objects or explain why you can't.
 - To delete specific objects, use delete_object with the object's ID from the CURRENT OBJECTS list above.
-- To clear the entire board, use clear_board.`;
+- To clear the entire board, use clear_board.
+- To move a specific object, use move_object with the object's ID and new ABSOLUTE x/y.
+- To organize/arrange/tidy the WHOLE board, use organize_board — this is much faster and more reliable than calling move_object many times. Always prefer organize_board for bulk rearrangement.`;
 
       // Call OpenAI with function calling
       const generation = this.trace.generation({
