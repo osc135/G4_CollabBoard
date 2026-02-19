@@ -213,6 +213,31 @@ const tools: OpenAI.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'delete_object',
+      description: 'Delete a specific object from the board by its ID',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'The ID of the object to delete' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'clear_board',
+      description: 'Remove all objects from the board',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'analyze_board',
       description: 'Analyze the current board state and provide insights',
       parameters: {
@@ -255,6 +280,17 @@ export class AIService {
       });
 
       // Create system message with board context
+      // Build a compact object list for the AI to reference (for deletion, analysis, etc.)
+      const objectSummary = boardObjects.slice(0, 100).map(o => {
+        const a = o as any;
+        const parts = [`id:${o.id}`, `type:${o.type}`];
+        if (a.x !== undefined) parts.push(`x:${a.x}`);
+        if (a.y !== undefined) parts.push(`y:${a.y}`);
+        if (a.text) parts.push(`text:"${a.text.slice(0, 40)}"`);
+        if (a.color) parts.push(`color:${a.color}`);
+        return parts.join(' ');
+      }).join('\n');
+
       const systemMessage = `You are a whiteboard-only AI assistant for a collaborative board app. Your SOLE purpose is to help users create, organize, and manage objects on their whiteboard.
 
 STRICT SCOPE — You must ONLY respond to requests related to the whiteboard:
@@ -262,6 +298,7 @@ STRICT SCOPE — You must ONLY respond to requests related to the whiteboard:
 - Organizing, arranging, or laying out board objects
 - Analyzing or describing what's currently on the board
 - Drawing scenes, diagrams, or visual compositions on the board
+- Deleting objects or clearing the board
 - Answering questions about what you can do on the board
 
 You must REFUSE any request that is not about the whiteboard. This includes but is not limited to:
@@ -278,6 +315,9 @@ BOARD STATE:
 The board currently has ${boardObjects.length} objects.
 Sticky notes: ${boardObjects.filter(o => o.type === 'sticky').length}
 Shapes: ${boardObjects.filter(o => ['rectangle', 'circle', 'line'].includes(o.type)).length}
+
+CURRENT OBJECTS ON BOARD:
+${objectSummary || '(empty board)'}
 
 POSITIONING: x/y offsets are relative to the CENTER of the user's screen. (0,0) = screen center.
 - x: positive = right, negative = left. y: positive = down, negative = up.
@@ -311,8 +351,10 @@ Choose colors that make sense (e.g. white for snow, brown for wood, blue for ice
 RESPONSE RULES:
 - When the user asks you to create or draw ANYTHING, you MUST call the appropriate tools. NEVER just describe what you would do — actually do it.
 - After creating objects, briefly describe what you made (e.g. "Here's a 3x3 grid of blue rectangles!" or "Here's your snowman with a top hat and scarf!").
-- If the user asks for something you cannot do with the available tools, say "Sorry, I'm unable to do that — I can create sticky notes, rectangles, circles, and lines."
-- NEVER respond with just "I can help you with that" — either create the objects or explain why you can't.`;
+- If the user asks for something you cannot do with the available tools, say "Sorry, I'm unable to do that — I can create sticky notes, rectangles, circles, and lines, delete objects, or clear the board."
+- NEVER respond with just "I can help you with that" — either create the objects or explain why you can't.
+- To delete specific objects, use delete_object with the object's ID from the CURRENT OBJECTS list above.
+- To clear the entire board, use clear_board.`;
 
       // Call OpenAI with function calling
       const generation = this.trace.generation({

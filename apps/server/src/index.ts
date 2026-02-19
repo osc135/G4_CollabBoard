@@ -67,13 +67,15 @@ const aiRateLimiter = rateLimit({
 // API endpoint for AI commands
 app.post("/api/ai/command", aiRateLimiter, async (req, res) => {
   try {
-    const { command, roomId = "default", history = [] } = req.body;
+    const { command, roomId = "default", history = [], objects = [] } = req.body;
     console.log("AI command received via API:", command, "for room:", roomId);
 
-    const boardState = getBoardState(roomId);
+    // Use objects from the client (Supabase is the source of truth)
+    // Fall back to server in-memory store if client didn't send objects
+    const boardObjects = objects.length > 0 ? objects : getBoardState(roomId).objects;
     const response = await aiService.processCommand(
       command,
-      boardState.objects,
+      boardObjects,
       "api-user",
       history
     );

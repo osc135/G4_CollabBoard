@@ -117,6 +117,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   const [, setBoardId] = useState<string | null>(null);
   const boardIdRef = useRef<string | null>(null);
   const [presenceChannel, setPresenceChannel] = useState<any>(null);
+  const presenceChannelRef = useRef<any>(null);
 
   useEffect(() => {
     if (!roomId || !userId) return;
@@ -225,6 +226,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
 
         // Store channel reference for cursor updates
         setPresenceChannel(channel);
+        presenceChannelRef.current = channel;
 
 
       } catch (error) {
@@ -235,12 +237,26 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
 
     initializeBoard();
 
+    // Immediate presence removal on tab close / navigation
+    const handleBeforeUnload = () => {
+      const ch = presenceChannelRef.current;
+      if (ch) {
+        // Use synchronous sendBeacon-style untrack; Supabase will pick up the leave
+        ch.untrack();
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
       if (subscription) {
         subscription.unsubscribe();
       }
-      if (presenceChannel) {
-        presenceChannel.unsubscribe();
+      const ch = presenceChannelRef.current;
+      if (ch) {
+        supabase.removeChannel(ch);
+        presenceChannelRef.current = null;
+        setPresenceChannel(null);
       }
     };
   }, [roomId, userId, displayName]);

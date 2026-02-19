@@ -19,14 +19,16 @@ interface AIResponse {
 
 interface AIActionCallbacks {
   createObject: (object: any) => void;
+  deleteObject: (id: string) => void;
 }
 
 interface AIChatProps {
   callbacks?: AIActionCallbacks;
   stageRef?: React.RefObject<any>;
+  objects?: any[];
 }
 
-export function AIChat({ callbacks, stageRef }: AIChatProps) {
+export function AIChat({ callbacks, stageRef, objects = [] }: AIChatProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
@@ -71,6 +73,7 @@ export function AIChat({ callbacks, stageRef }: AIChatProps) {
           roomId: window.location.pathname.split('/').pop(),
           viewport: { x: vp.centerX, y: vp.centerY },
           history: messages.slice(-20).map(m => ({ role: m.sender === 'user' ? 'user' : 'assistant', content: m.text })),
+          objects,
         }),
       });
       
@@ -134,6 +137,12 @@ export function AIChat({ callbacks, stageRef }: AIChatProps) {
               rotation: 0,
               zIndex: args.zIndex ?? 0,
             });
+          } else if (action.tool === 'delete_object' && callbacks.deleteObject) {
+            callbacks.deleteObject(args.id);
+          } else if (action.tool === 'clear_board' && callbacks.deleteObject) {
+            for (const obj of objects) {
+              callbacks.deleteObject(obj.id);
+            }
           }
         }
       }
