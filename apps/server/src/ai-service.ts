@@ -266,7 +266,7 @@ const tools: OpenAI.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'update_object',
-      description: 'Edit properties of an existing object on the board. Only the provided fields will be changed; omitted fields stay the same.',
+      description: 'Edit properties of a single existing object. Only the provided fields will be changed; omitted fields stay the same.',
       parameters: {
         type: 'object',
         properties: {
@@ -278,6 +278,47 @@ const tools: OpenAI.ChatCompletionTool[] = [
           zIndex: zIndexParam,
         },
         required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'bulk_update_objects',
+      description: 'Update multiple objects at once. Two modes: (1) Use "filter" to update ALL objects matching a type — best for "change all stickies to blue". (2) Use "updates" array with specific IDs — best when each object gets a different value. You can use both together: filter applies first, then individual updates override.',
+      parameters: {
+        type: 'object',
+        properties: {
+          filter: {
+            type: 'object',
+            description: 'Apply the same changes to ALL objects matching this filter. Much better than listing every ID.',
+            properties: {
+              type: { type: 'string', enum: ['sticky', 'rectangle', 'circle', 'line'], description: 'Only update objects of this type' },
+              color: { type: 'string', description: 'New fill/stroke color (hex code) to apply to all matched objects' },
+              text: { type: 'string', description: 'New text content to apply to all matched objects' },
+              width: { type: 'number', description: 'New width to apply to all matched objects' },
+              height: { type: 'number', description: 'New height to apply to all matched objects' },
+              zIndex: zIndexParam,
+            },
+            required: ['type'],
+          },
+          updates: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'The ID of the object to update' },
+                color: { type: 'string', description: 'New fill/stroke color (hex code)' },
+                text: { type: 'string', description: 'New text content (sticky notes only)' },
+                width: { type: 'number', description: 'New width in px' },
+                height: { type: 'number', description: 'New height in px' },
+                zIndex: zIndexParam,
+              },
+              required: ['id'],
+            },
+            description: 'Array of per-object updates (each needs an id). Use for different values per object.',
+          },
+        },
       },
     },
   },
@@ -395,7 +436,8 @@ RESPONSE RULES:
 - To delete specific objects, use delete_object with the object's ID from the CURRENT OBJECTS list above.
 - To clear the entire board, use clear_board.
 - To move a specific object, use move_object with the object's ID and new x/y offset from screen center.
-- To edit an existing object (change color, text, size, or zIndex), use update_object with the object's ID and the fields to change.
+- To edit an existing object, use update_object with its ID and the fields to change.
+- To edit MANY objects at once (e.g. "change all stickies to blue"), use bulk_update_objects with an array of updates. This is much faster and more reliable than calling update_object many times.
 - To organize/arrange/tidy the WHOLE board, use organize_board — this is much faster and more reliable than calling move_object many times. Always prefer organize_board for bulk rearrangement.`;
 
       // Call OpenAI with function calling
@@ -488,6 +530,12 @@ RESPONSE RULES:
               toolResult = `Moved object ${args.id} to (${args.x}, ${args.y}).`;
             } else if (toolCall.function.name === 'update_object') {
               toolResult = `Updated object ${args.id}.`;
+            } else if (toolCall.function.name === 'bulk_update_objects') {
+              const filterCount = args.filter ? boardObjects.filter((o: any) => o.type === args.filter.type).length : 0;
+              const idCount = args.updates?.length ?? 0;
+              toolResult = args.filter
+                ? `Applied changes to all ${filterCount} ${args.filter.type} objects${idCount ? `, plus ${idCount} individual updates` : ''}.`
+                : `Updated ${idCount} objects.`;
             }
 
             conversationMessages.push({

@@ -85,10 +85,17 @@ export function AIChat({ callbacks, stageRef, objects = [] }: AIChatProps) {
         // Offsets are in board coordinates — same units as object sizes — so add directly
         const offset = (val: number | undefined) => val ?? 0;
 
+        // Track object state locally so later actions see changes from earlier ones
+        // (e.g. organize moves objects, then update_object changes color without reverting positions)
+        const liveObjects = new Map<string, any>();
+        for (const obj of objects) {
+          liveObjects.set(obj.id, { ...obj });
+        }
+
         for (const action of data.actions) {
           const args = action.arguments;
           if (action.tool === 'create_sticky_note' && callbacks.createObject) {
-            callbacks.createObject({
+            const newObj = {
               id: `sticky-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               type: 'sticky' as const,
               x: centerX + offset(args.x),
@@ -99,9 +106,11 @@ export function AIChat({ callbacks, stageRef, objects = [] }: AIChatProps) {
               text: args.text || '',
               color: args.color || '#ffeb3b',
               zIndex: args.zIndex ?? 0,
-            });
+            };
+            liveObjects.set(newObj.id, newObj);
+            callbacks.createObject(newObj);
           } else if (action.tool === 'create_rectangle' && callbacks.createObject) {
-            callbacks.createObject({
+            const newObj = {
               id: `rect-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               type: 'rectangle' as const,
               x: centerX + offset(args.x),
@@ -111,10 +120,12 @@ export function AIChat({ callbacks, stageRef, objects = [] }: AIChatProps) {
               color: args.color || '#2196f3',
               rotation: 0,
               zIndex: args.zIndex ?? 0,
-            });
+            };
+            liveObjects.set(newObj.id, newObj);
+            callbacks.createObject(newObj);
           } else if (action.tool === 'create_circle' && callbacks.createObject) {
             const size = args.size || 80;
-            callbacks.createObject({
+            const newObj = {
               id: `circle-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               type: 'circle' as const,
               x: centerX + offset(args.x),
@@ -124,9 +135,11 @@ export function AIChat({ callbacks, stageRef, objects = [] }: AIChatProps) {
               color: args.color || '#4caf50',
               rotation: 0,
               zIndex: args.zIndex ?? 0,
-            });
+            };
+            liveObjects.set(newObj.id, newObj);
+            callbacks.createObject(newObj);
           } else if (action.tool === 'create_line' && callbacks.createObject) {
-            callbacks.createObject({
+            const newObj = {
               id: `line-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               type: 'line' as const,
               x: centerX + offset(args.x),
@@ -136,7 +149,9 @@ export function AIChat({ callbacks, stageRef, objects = [] }: AIChatProps) {
               color: args.color || '#333333',
               rotation: 0,
               zIndex: args.zIndex ?? 0,
-            });
+            };
+            liveObjects.set(newObj.id, newObj);
+            callbacks.createObject(newObj);
           } else if (action.tool === 'organize_board' && callbacks.updateObject) {
             const gap = 16;
             const groupGap = 60;
@@ -144,7 +159,7 @@ export function AIChat({ callbacks, stageRef, objects = [] }: AIChatProps) {
             // Always group by type — rectangles together, circles together, etc.
             const typeOrder = ['sticky', 'rectangle', 'circle', 'line'];
             const groups: Record<string, any[]> = {};
-            for (const obj of objects) {
+            for (const obj of liveObjects.values()) {
               const key = obj.type || 'other';
               if (!groups[key]) groups[key] = [];
               groups[key].push(obj);
@@ -163,7 +178,6 @@ export function AIChat({ callbacks, stageRef, objects = [] }: AIChatProps) {
             for (const key of sortedKeys) {
               const group = groups[key];
               const cols = Math.min(Math.ceil(Math.sqrt(group.length)), 6);
-              // Use the max width/height in the group so larger objects don't overflow cells
               const maxW = Math.max(...group.map((o: any) => o.width || 80));
               const maxH = Math.max(...group.map((o: any) => o.height || 80));
               const cellW = maxW + gap;
@@ -172,33 +186,72 @@ export function AIChat({ callbacks, stageRef, objects = [] }: AIChatProps) {
               group.forEach((obj: any, i: number) => {
                 const col = i % cols;
                 const row = Math.floor(i / cols);
-                callbacks.updateObject({ ...obj, x: cursorX + col * cellW, y: baseY + row * cellH });
+                const updated = { ...obj, x: cursorX + col * cellW, y: baseY + row * cellH };
+                liveObjects.set(obj.id, updated);
+                callbacks.updateObject(updated);
               });
 
               cursorX += cols * cellW + groupGap;
             }
           } else if (action.tool === 'move_object' && callbacks.updateObject) {
-            const existing = objects.find((o: any) => o.id === args.id);
+            const existing = liveObjects.get(args.id);
             if (existing) {
-              callbacks.updateObject({ ...existing, x: centerX + offset(args.x), y: centerY + offset(args.y) });
+              const updated = { ...existing, x: centerX + offset(args.x), y: centerY + offset(args.y) };
+              liveObjects.set(args.id, updated);
+              callbacks.updateObject(updated);
             }
           } else if (action.tool === 'update_object' && callbacks.updateObject) {
-            const existing = objects.find((o: any) => o.id === args.id);
+            const existing = liveObjects.get(args.id);
             if (existing) {
-              const updates: any = { ...existing };
-              if (args.color !== undefined) updates.color = args.color;
-              if (args.text !== undefined) updates.text = args.text;
-              if (args.width !== undefined) updates.width = args.width;
-              if (args.height !== undefined) updates.height = args.height;
-              if (args.zIndex !== undefined) updates.zIndex = args.zIndex;
-              callbacks.updateObject(updates);
+              const updated: any = { ...existing };
+              if (args.color !== undefined) updated.color = args.color;
+              if (args.text !== undefined) updated.text = args.text;
+              if (args.width !== undefined) updated.width = args.width;
+              if (args.height !== undefined) updated.height = args.height;
+              if (args.zIndex !== undefined) updated.zIndex = args.zIndex;
+              liveObjects.set(args.id, updated);
+              callbacks.updateObject(updated);
+            }
+          } else if (action.tool === 'bulk_update_objects' && callbacks.updateObject) {
+            // Filter mode: apply same changes to all objects matching type
+            if (args.filter) {
+              const { type: filterType, ...changes } = args.filter;
+              for (const [id, obj] of liveObjects) {
+                if (obj.type === filterType) {
+                  const updated: any = { ...obj };
+                  if (changes.color !== undefined) updated.color = changes.color;
+                  if (changes.text !== undefined) updated.text = changes.text;
+                  if (changes.width !== undefined) updated.width = changes.width;
+                  if (changes.height !== undefined) updated.height = changes.height;
+                  if (changes.zIndex !== undefined) updated.zIndex = changes.zIndex;
+                  liveObjects.set(id, updated);
+                  callbacks.updateObject(updated);
+                }
+              }
+            }
+            // Individual updates (can override filter for specific objects)
+            const updates = args.updates || [];
+            for (const upd of updates) {
+              const existing = liveObjects.get(upd.id);
+              if (existing) {
+                const updated: any = { ...existing };
+                if (upd.color !== undefined) updated.color = upd.color;
+                if (upd.text !== undefined) updated.text = upd.text;
+                if (upd.width !== undefined) updated.width = upd.width;
+                if (upd.height !== undefined) updated.height = upd.height;
+                if (upd.zIndex !== undefined) updated.zIndex = upd.zIndex;
+                liveObjects.set(upd.id, updated);
+                callbacks.updateObject(updated);
+              }
             }
           } else if (action.tool === 'delete_object' && callbacks.deleteObject) {
+            liveObjects.delete(args.id);
             callbacks.deleteObject(args.id);
           } else if (action.tool === 'clear_board' && callbacks.deleteObject) {
-            for (const obj of objects) {
-              callbacks.deleteObject(obj.id);
+            for (const id of liveObjects.keys()) {
+              callbacks.deleteObject(id);
             }
+            liveObjects.clear();
           }
         }
       }
