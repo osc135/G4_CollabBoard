@@ -196,13 +196,13 @@ const tools: OpenAI.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'move_object',
-      description: 'Move a single existing object to a new absolute position. The x/y are ABSOLUTE board coordinates. Use for repositioning one or a few specific objects — NOT for bulk organization (use organize_board instead).',
+      description: 'Move a single existing object to a new position. x/y are offsets from the center of the user\'s screen (same coordinate system as create tools). Use for repositioning one or a few specific objects — NOT for bulk organization (use organize_board instead).',
       parameters: {
         type: 'object',
         properties: {
           id: { type: 'string', description: 'The ID of the object to move (from the CURRENT OBJECTS list)' },
-          x: { type: 'number', description: 'New absolute x position (board coordinates)' },
-          y: { type: 'number', description: 'New absolute y position (board coordinates)' },
+          x: { type: 'number', description: 'Horizontal offset from screen center (px). 0 = center.' },
+          y: { type: 'number', description: 'Vertical offset from screen center (px). 0 = center.' },
         },
         required: ['id', 'x', 'y'],
       },
@@ -262,6 +262,25 @@ const tools: OpenAI.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'update_object',
+      description: 'Edit properties of an existing object on the board. Only the provided fields will be changed; omitted fields stay the same.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'The ID of the object to update (from the CURRENT OBJECTS list)' },
+          color: { type: 'string', description: 'New fill/stroke color (hex code)' },
+          text: { type: 'string', description: 'New text content (sticky notes only)' },
+          width: { type: 'number', description: 'New width in px' },
+          height: { type: 'number', description: 'New height in px' },
+          zIndex: zIndexParam,
+        },
+        required: ['id'],
+      },
+    },
+  },
 ];
 
 // Export for testing
@@ -297,7 +316,7 @@ export class AIService {
 
       // Create system message with board context
       // Build a compact object list for the AI to reference (for deletion, analysis, etc.)
-      const objectSummary = boardObjects.slice(0, 100).map(o => {
+      const objectSummary = boardObjects.map(o => {
         const a = o as any;
         const parts = [`id:${o.id}`, `type:${o.type}`];
         if (a.x !== undefined) parts.push(`x:${a.x}`);
@@ -313,6 +332,7 @@ export class AIService {
 
 STRICT SCOPE — You must ONLY respond to requests related to the whiteboard:
 - Creating objects (sticky notes, rectangles, circles, lines)
+- Editing existing objects (changing color, text, size, layering)
 - Organizing, arranging, or laying out board objects
 - Analyzing or describing what's currently on the board
 - Drawing scenes, diagrams, or visual compositions on the board
@@ -371,9 +391,11 @@ RESPONSE RULES:
 - After creating objects, briefly describe what you made (e.g. "Here's a 3x3 grid of blue rectangles!" or "Here's your snowman with a top hat and scarf!").
 - If the user asks for something you cannot do with the available tools, say "Sorry, I'm unable to do that — I can create sticky notes, rectangles, circles, and lines, delete objects, or clear the board."
 - NEVER respond with just "I can help you with that" — either create the objects or explain why you can't.
+- MULTI-TASK: When the user asks for multiple things in one message (e.g. "organize the board and tell me what's on it", "create a red circle and delete the blue one"), handle ALL requests by calling multiple tools in a single response. Do not only address one part of the request.
 - To delete specific objects, use delete_object with the object's ID from the CURRENT OBJECTS list above.
 - To clear the entire board, use clear_board.
-- To move a specific object, use move_object with the object's ID and new ABSOLUTE x/y.
+- To move a specific object, use move_object with the object's ID and new x/y offset from screen center.
+- To edit an existing object (change color, text, size, or zIndex), use update_object with the object's ID and the fields to change.
 - To organize/arrange/tidy the WHOLE board, use organize_board — this is much faster and more reliable than calling move_object many times. Always prefer organize_board for bulk rearrangement.`;
 
       // Call OpenAI with function calling
@@ -391,51 +413,91 @@ RESPONSE RULES:
           content: m.content,
         }));
 
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: [
-          { role: 'system', content: systemMessage },
-          ...priorMessages,
-          { role: 'user', content: command }
-        ],
-        tools,
-        tool_choice: 'auto',
-        temperature: 0.7,
-      });
-
-      generation.end({
-        output: completion.choices[0].message,
-        usage: {
-          promptTokens: completion.usage?.prompt_tokens,
-          completionTokens: completion.usage?.completion_tokens,
-        },
-      });
-
-      const response = completion.choices[0].message;
-      const toolCalls = response.tool_calls || [];
-
-      // Process tool calls and generate actions
+      // --- Tool-call loop: allows the model to call multiple tools across iterations ---
+      const MAX_TOOL_ITERATIONS = 3;
       const actions: any[] = [];
-      for (const toolCall of toolCalls) {
-        if ('function' in toolCall) {
-          const args = JSON.parse(toolCall.function.arguments);
-          actions.push({
-            tool: toolCall.function.name,
-            arguments: args,
+      const conversationMessages: OpenAI.ChatCompletionMessageParam[] = [
+        { role: 'system', content: systemMessage },
+        ...priorMessages,
+        { role: 'user', content: command },
+      ];
+
+      let response: OpenAI.ChatCompletionMessage | null = null;
+
+      for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+        const completion = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: conversationMessages,
+          tools,
+          tool_choice: 'auto',
+          temperature: 0.7,
+        });
+
+        if (iteration === 0) {
+          generation.end({
+            output: completion.choices[0].message,
+            usage: {
+              promptTokens: completion.usage?.prompt_tokens,
+              completionTokens: completion.usage?.completion_tokens,
+            },
           });
         }
+
+        response = completion.choices[0].message;
+        const toolCalls = response.tool_calls || [];
+
+        // No tool calls — model is done, has a final text response
+        if (toolCalls.length === 0) break;
+
+        // Collect actions and build tool result messages
+        conversationMessages.push(response as any);
+
+        for (const toolCall of toolCalls) {
+          if ('function' in toolCall) {
+            const args = JSON.parse(toolCall.function.arguments);
+            actions.push({
+              tool: toolCall.function.name,
+              arguments: args,
+            });
+
+            // Build a tool result so the model knows what happened
+            let toolResult = `Done: ${toolCall.function.name}`;
+            if (toolCall.function.name === 'analyze_board') {
+              toolResult = `Board has ${boardObjects.length} objects.\n${objectSummary || '(empty)'}`;
+            } else if (toolCall.function.name === 'organize_board') {
+              toolResult = `Organized ${boardObjects.length} objects using "${args.strategy}" strategy.`;
+            } else if (toolCall.function.name === 'clear_board') {
+              toolResult = `Cleared all ${boardObjects.length} objects from the board.`;
+            } else if (toolCall.function.name === 'delete_object') {
+              toolResult = `Deleted object ${args.id}.`;
+            } else if (toolCall.function.name.startsWith('create_')) {
+              toolResult = `Created ${toolCall.function.name.replace('create_', '')} at (${args.x ?? 0}, ${args.y ?? 0}).`;
+            } else if (toolCall.function.name === 'move_object') {
+              toolResult = `Moved object ${args.id} to (${args.x}, ${args.y}).`;
+            } else if (toolCall.function.name === 'update_object') {
+              toolResult = `Updated object ${args.id}.`;
+            }
+
+            conversationMessages.push({
+              role: 'tool' as const,
+              tool_call_id: toolCall.id,
+              content: toolResult,
+            });
+          }
+        }
+        // Loop continues — model gets tool results and can respond with text or more tool calls
       }
 
       // Update trace with success
       this.trace.update({
-        output: { message: response.content, actionCount: actions.length },
+        output: { message: response?.content, actionCount: actions.length },
         level: 'DEFAULT',
       });
 
       await langfuse.flush();
 
       // Generate a fallback message if the model didn't provide text
-      let message = response.content || '';
+      let message = response?.content || '';
       if (!message && actions.length > 0) {
         const counts: Record<string, number> = {};
         for (const a of actions) {

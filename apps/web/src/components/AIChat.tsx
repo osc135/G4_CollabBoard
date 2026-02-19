@@ -138,8 +138,8 @@ export function AIChat({ callbacks, stageRef, objects = [] }: AIChatProps) {
               zIndex: args.zIndex ?? 0,
             });
           } else if (action.tool === 'organize_board' && callbacks.updateObject) {
-            const gap = 8;
-            const groupGap = 30;
+            const gap = 16;
+            const groupGap = 60;
 
             // Always group by type — rectangles together, circles together, etc.
             const typeOrder = ['sticky', 'rectangle', 'circle', 'line'];
@@ -163,8 +163,11 @@ export function AIChat({ callbacks, stageRef, objects = [] }: AIChatProps) {
             for (const key of sortedKeys) {
               const group = groups[key];
               const cols = Math.min(Math.ceil(Math.sqrt(group.length)), 6);
-              const cellW = (group[0]?.width || 80) + gap;
-              const cellH = (group[0]?.height || 80) + gap;
+              // Use the max width/height in the group so larger objects don't overflow cells
+              const maxW = Math.max(...group.map((o: any) => o.width || 80));
+              const maxH = Math.max(...group.map((o: any) => o.height || 80));
+              const cellW = maxW + gap;
+              const cellH = maxH + gap;
 
               group.forEach((obj: any, i: number) => {
                 const col = i % cols;
@@ -177,7 +180,18 @@ export function AIChat({ callbacks, stageRef, objects = [] }: AIChatProps) {
           } else if (action.tool === 'move_object' && callbacks.updateObject) {
             const existing = objects.find((o: any) => o.id === args.id);
             if (existing) {
-              callbacks.updateObject({ ...existing, x: args.x, y: args.y });
+              callbacks.updateObject({ ...existing, x: centerX + offset(args.x), y: centerY + offset(args.y) });
+            }
+          } else if (action.tool === 'update_object' && callbacks.updateObject) {
+            const existing = objects.find((o: any) => o.id === args.id);
+            if (existing) {
+              const updates: any = { ...existing };
+              if (args.color !== undefined) updates.color = args.color;
+              if (args.text !== undefined) updates.text = args.text;
+              if (args.width !== undefined) updates.width = args.width;
+              if (args.height !== undefined) updates.height = args.height;
+              if (args.zIndex !== undefined) updates.zIndex = args.zIndex;
+              callbacks.updateObject(updates);
             }
           } else if (action.tool === 'delete_object' && callbacks.deleteObject) {
             callbacks.deleteObject(args.id);
