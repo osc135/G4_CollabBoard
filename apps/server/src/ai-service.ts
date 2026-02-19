@@ -454,7 +454,19 @@ RESPONSE RULES:
 
         for (const toolCall of toolCalls) {
           if ('function' in toolCall) {
-            const args = JSON.parse(toolCall.function.arguments);
+            let args: any;
+            try {
+              args = JSON.parse(toolCall.function.arguments);
+            } catch (e) {
+              console.error(`Failed to parse tool arguments for ${toolCall.function.name}:`, e);
+              conversationMessages.push({
+                role: 'tool' as const,
+                tool_call_id: toolCall.id,
+                content: `Error: malformed arguments — skipped.`,
+              });
+              continue;
+            }
+
             actions.push({
               tool: toolCall.function.name,
               arguments: args,

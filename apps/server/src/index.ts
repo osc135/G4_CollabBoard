@@ -165,7 +165,7 @@ io.on("connection", (socket) => {
               rotation: 0,
               text: action.arguments.text || '',
               color: action.arguments.color || '#ffeb3b',
-              layer: boardState.objects.length
+              zIndex: action.arguments.zIndex ?? 0,
             };
             addObject(roomId, stickyNote);
           } else if (action.tool === 'create_rectangle') {
@@ -177,7 +177,8 @@ io.on("connection", (socket) => {
               width: action.arguments.width || 120,
               height: action.arguments.height || 80,
               color: action.arguments.color || '#2196f3',
-              rotation: 0
+              rotation: 0,
+              zIndex: action.arguments.zIndex ?? 0,
             };
             addObject(roomId, rect);
           } else if (action.tool === 'create_circle') {
@@ -190,7 +191,8 @@ io.on("connection", (socket) => {
               width: size,
               height: size,
               color: action.arguments.color || '#4caf50',
-              rotation: 0
+              rotation: 0,
+              zIndex: action.arguments.zIndex ?? 0,
             };
             addObject(roomId, circle);
           } else if (action.tool === 'create_line') {
@@ -202,50 +204,13 @@ io.on("connection", (socket) => {
               width: action.arguments.width || 200,
               height: action.arguments.height || 0,
               color: action.arguments.color || '#333333',
-              rotation: 0
+              rotation: 0,
+              zIndex: action.arguments.zIndex ?? 0,
             };
             addObject(roomId, line);
-          } else if (action.tool === 'organize_board') {
-            // Implement organization logic based on strategy
-            const strategy = action.arguments.strategy;
-            let organized = [...boardState.objects];
-
-            if (strategy === 'grid') {
-              // Arrange in a grid
-              const cols = Math.ceil(Math.sqrt(organized.length));
-              organized.forEach((obj, i) => {
-                const col = i % cols;
-                const row = Math.floor(i / cols);
-                updateObject(roomId, {
-                  ...obj,
-                  x: 100 + col * 250,
-                  y: 100 + row * 250
-                });
-              });
-            } else if (strategy === 'color') {
-              // Group by color
-              const byColor = organized.reduce((acc, obj) => {
-                if ('color' in obj && obj.color) {
-                  const color = obj.color as string;
-                  if (!acc[color]) acc[color] = [];
-                  acc[color].push(obj);
-                }
-                return acc;
-              }, {} as Record<string, typeof organized>);
-
-              let xOffset = 100;
-              Object.values(byColor).forEach(group => {
-                group.forEach((obj, i) => {
-                  updateObject(roomId, {
-                    ...obj,
-                    x: xOffset + (i % 3) * 220,
-                    y: 100 + Math.floor(i / 3) * 220
-                  });
-                });
-                xOffset += 700;
-              });
-            }
           }
+          // organize_board, move_object, delete_object, clear_board, and analyze_board
+          // are handled client-side where the viewport context and Supabase sync live.
         }
 
         // Emit updated board state after processing actions
