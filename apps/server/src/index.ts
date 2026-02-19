@@ -118,22 +118,19 @@ io.on("connection", (socket) => {
     const parsed = boardObjectSchema.safeParse(data);
     if (!parsed.success) return;
     addObject(roomId, parsed.data);
-    const state = getBoardState(roomId);
-    io.in(roomId).emit("board:state", { objects: state.objects });
+    io.in(roomId).emit("object:created", parsed.data);
   });
 
   socket.on("object:update", (data: unknown) => {
     const parsed = boardObjectSchema.safeParse(data);
     if (!parsed.success) return;
     updateObject(roomId, parsed.data);
-    const state = getBoardState(roomId);
-    io.in(roomId).emit("board:state", { objects: state.objects });
+    io.in(roomId).emit("object:updated", parsed.data);
   });
 
   socket.on("object:delete", (objectId: string) => {
     removeObject(roomId, objectId);
-    const state = getBoardState(roomId);
-    io.in(roomId).emit("board:state", { objects: state.objects });
+    io.in(roomId).emit("object:deleted", objectId);
   });
 
   socket.on("ai:command", async (data: { command: string; viewport?: { x: number; y: number } }) => {

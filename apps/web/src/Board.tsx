@@ -23,6 +23,8 @@ interface BoardProps {
   stageRef: React.RefObject<Konva.Stage | null>;
 }
 
+const noop = () => {};
+
 const CURSOR_COLORS = ["#ef4444", "#22c55e", "#3b82f6", "#a855f7", "#f59e0b"];
 function getCursorColor(index: number) {
   return CURSOR_COLORS[index % CURSOR_COLORS.length];
@@ -172,21 +174,21 @@ function calculateOrthogonalPath(start: { x: number; y: number }, end: { x: numb
   ];
 }
 
-// Helper to find which object is under a point
+// Helper to find which object is under a point.
+// Accepts a pre-sorted array (descending zIndex) to avoid re-sorting on every call.
 function findObjectAtPoint(objects: BoardObject[], point: { x: number; y: number }): BoardObject | null {
-  // Sort by zIndex descending so we check top-most objects first
-  const sorted = [...objects].sort((a, b) => ((b as any).zIndex ?? 0) - ((a as any).zIndex ?? 0));
-  for (const obj of sorted) {
+  // Iterate in reverse (highest zIndex first) since sortedObjects is ascending
+  for (let i = objects.length - 1; i >= 0; i--) {
+    const obj = objects[i];
     if (obj.type === "connector") continue;
-    
-    const width = obj.type === "sticky" ? obj.width : 
-                  obj.type === "rectangle" || obj.type === "circle" ? obj.width : 
+
+    const width = obj.type === "sticky" ? obj.width :
+                  obj.type === "rectangle" || obj.type === "circle" ? obj.width :
                   obj.type === "line" ? 100 : 0;
-    const height = obj.type === "sticky" ? obj.height : 
-                   obj.type === "rectangle" || obj.type === "circle" ? obj.height : 
+    const height = obj.type === "sticky" ? obj.height :
+                   obj.type === "rectangle" || obj.type === "circle" ? obj.height :
                    obj.type === "line" ? 100 : 0;
-    
-    // Add some padding for easier selection (10px around the object)
+
     const padding = 10;
     if (point.x >= obj.x - padding && point.x <= obj.x + width + padding &&
         point.y >= obj.y - padding && point.y <= obj.y + height + padding) {
@@ -216,7 +218,7 @@ interface MemoStickyProps extends ObjectHandlers {
   isDragging: boolean;
   isEditing: boolean;
   isConnectorTarget: boolean;
-  scale: number;
+  scaleRef: React.MutableRefObject<number>;
   shapeRefs: React.MutableRefObject<Record<string, Konva.Group>>;
   onStickyDragStart: (id: string) => void;
   onStickyDragEnd: (id: string, obj: BoardObject, x: number, y: number, rotation: number) => void;
@@ -226,10 +228,11 @@ interface MemoStickyProps extends ObjectHandlers {
 }
 
 const MemoStickyNote = React.memo<MemoStickyProps>(({
-  obj, isSelected, isHovered, isDragging, isEditing, isConnectorTarget, scale,
+  obj, isSelected, isHovered, isDragging, isEditing, isConnectorTarget, scaleRef,
   shapeRefs, onDragMove, onStickyDragStart, onStickyDragEnd, onSelect, onContextMenu,
   onDblClick, onHoverEnter, onHoverLeave, onTransformEnd, onCursorMove,
 }) => {
+  const scale = scaleRef.current;
   const w = obj.width;
   const h = obj.height;
   const rot = obj.rotation ?? 0;
@@ -254,7 +257,6 @@ const MemoStickyNote = React.memo<MemoStickyProps>(({
           const point = stage.getRelativePointerPosition();
           if (point) onCursorMove(point.x, point.y);
         }
-        e.target.getLayer()?.batchDraw();
       }}
       onDragEnd={(e) => {
         const newX = e.target.x() - w / 2;
@@ -442,7 +444,6 @@ const MemoRectangle = React.memo<MemoRectProps>(({
           const point = stage.getRelativePointerPosition();
           if (point) onCursorMove(point.x, point.y);
         }
-        e.target.getLayer()?.batchDraw();
       }}
       onDragEnd={(e) => {
         const newX = e.target.x() - w / 2;
@@ -519,7 +520,6 @@ const MemoCircleObj = React.memo<MemoCircleProps>(({
           const point = stage.getRelativePointerPosition();
           if (point) onCursorMove(point.x, point.y);
         }
-        e.target.getLayer()?.batchDraw();
       }}
       onDragEnd={(e) => {
         const newX = e.target.x() - w / 2;
@@ -591,7 +591,6 @@ const MemoLineObj = React.memo<MemoLineProps>(({
           const point = stage.getRelativePointerPosition();
           if (point) onCursorMove(point.x, point.y);
         }
-        e.target.getLayer()?.batchDraw();
       }}
       onDragEnd={(e) => {
         const newX = e.target.x();
@@ -721,6 +720,33 @@ const MemoConnector = React.memo<MemoConnectorProps>(({
   );
 });
 
+// ============= Memoized Cursor Layer =============
+
+interface MemoCursorLayerProps {
+  cursors: Record<string, Cursor>;
+}
+
+const MemoCursorLayer = React.memo<MemoCursorLayerProps>(({ cursors }) => (
+  <Layer listening={false}>
+    {Object.entries(cursors).map(([id, cur], i) => {
+      const color = getCursorColor(i);
+      return (
+        <Group key={id} x={cur.x} y={cur.y}>
+          <Line
+            points={[0, 0, 14, 10, 8, 10, 8, 18, 0, 14]}
+            fill={color}
+            stroke={color}
+            strokeWidth={1}
+            lineJoin="round"
+            closed
+          />
+          <Text text={cur.name} x={20} y={4} fontSize={12} fill={color} fontStyle="bold" />
+        </Group>
+      );
+    })}
+  </Layer>
+));
+
 // ================================================================
 
 export function Board({
@@ -740,6 +766,8 @@ export function Board({
   selectedShapeColor = "#3b82f6",
 }: BoardProps) {
   const [scale, setScale] = useState(1);
+  const scaleRef = useRef(1);
+  scaleRef.current = scale;
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [editingStickyId, setEditingStickyId] = useState<string | null>(null);
   const [editingStickyText, setEditingStickyText] = useState("");
@@ -775,6 +803,8 @@ export function Board({
   // ============= Refs for unstable props (stable callback pattern) =============
   const onObjectUpdateRef = useRef(onObjectUpdate);
   onObjectUpdateRef.current = onObjectUpdate;
+  const onObjectCreateRef = useRef(onObjectCreate);
+  onObjectCreateRef.current = onObjectCreate;
   const onObjectDragRef = useRef(onObjectDrag);
   onObjectDragRef.current = onObjectDrag;
   const onObjectDragEndRef = useRef(onObjectDragEnd);
@@ -784,11 +814,32 @@ export function Board({
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
 
+  // ============= Refs for mutable state used in callbacks =============
+  const objectsRef = useRef(objects);
+  objectsRef.current = objects;
+  const drawingConnectorRef = useRef(drawingConnector);
+  drawingConnectorRef.current = drawingConnector;
+  const selectionBoxRef = useRef(selectionBox);
+  selectionBoxRef.current = selectionBox;
+  const drawingLineRef = useRef(drawingLine);
+  drawingLineRef.current = drawingLine;
+  const contextMenuRef = useRef(contextMenu);
+  contextMenuRef.current = contextMenu;
+  const connectorStyleRef = useRef(connectorStyle);
+  connectorStyleRef.current = connectorStyle;
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
+
   // ============= Object lookup Map for O(1) access =============
   const objectMap = useMemo(
     () => new Map(objects.map(o => [o.id, o])),
     [objects]
   );
+  const objectMapRef = useRef(objectMap);
+  objectMapRef.current = objectMap;
+
+  // ============= O(1) selection lookup =============
+  const selectedIdsSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   // ============= Throttled drag state (connectors only need ~15fps) =============
   const draggingObjectRef = useRef<{ id: string; x: number; y: number } | null>(null);
@@ -917,8 +968,30 @@ export function Board({
     const right = vx + vw + pad;
     const bottom = vy + vh + pad;
 
+    // Reuse objectMap for connector culling (already computed above)
+    const objMap = objectMap;
+
     return sortedObjects.filter(obj => {
-      if (obj.type === 'connector') return true;
+      if (obj.type === 'connector') {
+        const c = obj as any;
+        const startObj = c.startObjectId ? objMap.get(c.startObjectId) ?? null : null;
+        const endObj = c.endObjectId ? objMap.get(c.endObjectId) ?? null : null;
+
+        // Resolve start/end points from connected objects or fallback to stored points
+        const sx = startObj && startObj.type !== 'connector' ? startObj.x : c.startPoint?.x ?? 0;
+        const sy = startObj && startObj.type !== 'connector' ? startObj.y : c.startPoint?.y ?? 0;
+        const ex = endObj && endObj.type !== 'connector' ? endObj.x : c.endPoint?.x ?? 0;
+        const ey = endObj && endObj.type !== 'connector' ? endObj.y : c.endPoint?.y ?? 0;
+
+        // Connector bounding box with extra padding for curves
+        const connPad = 150; // accounts for curved/orthogonal paths overshooting
+        const cLeft = Math.min(sx, ex) - connPad;
+        const cTop = Math.min(sy, ey) - connPad;
+        const cRight = Math.max(sx, ex) + (startObj && startObj.type !== 'connector' ? (startObj as any).width ?? 200 : 0) + connPad;
+        const cBottom = Math.max(sy, ey) + (endObj && endObj.type !== 'connector' ? (endObj as any).height ?? 100 : 0) + connPad;
+
+        return !(cRight < left || cLeft > right || cBottom < top || cTop > bottom);
+      }
 
       const ox = obj.x;
       const oy = obj.y;
@@ -930,7 +1003,89 @@ export function Board({
       return !(ox + ow < left || ox > right || oy + oh < top || oy > bottom);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortedObjects, cullVersion]);
+  }, [sortedObjects, objectMap, cullVersion]);
+
+  // ============= Pre-compute connector endpoints so MemoConnector gets stable refs =============
+  // Static endpoints — only recalculated when objects or visibility change (NOT during drag)
+  const staticConnectorEndpoints = useMemo(() => {
+    const map = new Map<string, { startPt: { x: number; y: number }; endPt: { x: number; y: number } }>();
+    for (const obj of visibleObjects) {
+      if (obj.type !== 'connector') continue;
+      const connector = obj as any;
+      let startPt = connector.startPoint;
+      let endPt = connector.endPoint;
+
+      const startObj = connector.startObjectId ? objectMap.get(connector.startObjectId) ?? null : null;
+      const endObj = connector.endObjectId ? objectMap.get(connector.endObjectId) ?? null : null;
+
+      if (startObj && endObj) {
+        const endCenter = getAnchorPoint(endObj, 'center');
+        const startCenter = getAnchorPoint(startObj, 'center');
+        startPt = getBestPerimeterPoint(startObj, endCenter);
+        endPt = getBestPerimeterPoint(endObj, startCenter);
+      } else if (startObj && !endObj) {
+        startPt = getBestPerimeterPoint(startObj, endPt);
+      } else if (!startObj && endObj) {
+        endPt = getBestPerimeterPoint(endObj, startPt);
+      }
+
+      map.set(obj.id, { startPt, endPt });
+    }
+    return map;
+  }, [visibleObjects, objectMap]);
+
+  // During drag, only patch the 1-2 connectors attached to the dragged object
+  const connectorEndpoints = useMemo(() => {
+    if (!draggingObject) return staticConnectorEndpoints;
+
+    const dragId = draggingObject.id;
+    let needsPatch = false;
+    // Quick scan: are any visible connectors attached to the dragged object?
+    for (const obj of visibleObjects) {
+      if (obj.type !== 'connector') continue;
+      const c = obj as any;
+      if (c.startObjectId === dragId || c.endObjectId === dragId) {
+        needsPatch = true;
+        break;
+      }
+    }
+    if (!needsPatch) return staticConnectorEndpoints;
+
+    // Clone map and only recompute affected connectors
+    const map = new Map(staticConnectorEndpoints);
+    for (const obj of visibleObjects) {
+      if (obj.type !== 'connector') continue;
+      const connector = obj as any;
+      if (connector.startObjectId !== dragId && connector.endObjectId !== dragId) continue;
+
+      let startPt = connector.startPoint;
+      let endPt = connector.endPoint;
+
+      let startObj = connector.startObjectId ? objectMap.get(connector.startObjectId) ?? null : null;
+      let endObj = connector.endObjectId ? objectMap.get(connector.endObjectId) ?? null : null;
+
+      if (startObj && startObj.type !== 'connector' && startObj.id === dragId) {
+        startObj = { ...startObj, x: draggingObject.x, y: draggingObject.y };
+      }
+      if (endObj && endObj.type !== 'connector' && endObj.id === dragId) {
+        endObj = { ...endObj, x: draggingObject.x, y: draggingObject.y };
+      }
+
+      if (startObj && endObj) {
+        const endCenter = getAnchorPoint(endObj, 'center');
+        const startCenter = getAnchorPoint(startObj, 'center');
+        startPt = getBestPerimeterPoint(startObj, endCenter);
+        endPt = getBestPerimeterPoint(endObj, startCenter);
+      } else if (startObj && !endObj) {
+        startPt = getBestPerimeterPoint(startObj, endPt);
+      } else if (!startObj && endObj) {
+        endPt = getBestPerimeterPoint(endObj, startPt);
+      }
+
+      map.set(obj.id, { startPt, endPt });
+    }
+    return map;
+  }, [staticConnectorEndpoints, draggingObject, visibleObjects, objectMap]);
 
   const handleObjectContextMenu = useCallback((e: Konva.KonvaEventObject<PointerEvent>, objId: string) => {
     e.evt.preventDefault();
@@ -1047,14 +1202,14 @@ export function Board({
   const handleStageMouseDown = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
       if (e.target !== e.target.getStage()) return;
-      if (tool === "pan" && !e.evt.shiftKey) return;
+      const curTool = toolRef.current;
+      if (curTool === "pan" && !e.evt.shiftKey) return;
       const stage = e.target.getStage();
       if (!stage) return;
       const pos = stage.getRelativePointerPosition();
       if (!pos) return;
-      
-      if (tool === "line") {
-        // Start line drawing
+
+      if (curTool === "line") {
         setDrawingLine({
           id: `line-${Date.now()}`,
           startX: pos.x,
@@ -1066,7 +1221,7 @@ export function Board({
         setSelectionBox({ start: { x: pos.x, y: pos.y }, end: { x: pos.x, y: pos.y } });
       }
     },
-    [tool]
+    []
   );
 
   const handleStageMouseMove = useCallback(
@@ -1075,35 +1230,80 @@ export function Board({
       if (!stage) return;
       const pos = stage.getRelativePointerPosition();
       if (!pos) return;
-      
-      if (drawingLine) {
-        // Update line current position
+
+      if (drawingLineRef.current) {
         setDrawingLine((prev) => (prev ? { ...prev, currentX: pos.x, currentY: pos.y } : null));
-      } else if (selectionBox) {
+      } else if (selectionBoxRef.current) {
         setSelectionBox((prev) => (prev ? { ...prev, end: { x: pos.x, y: pos.y } } : null));
       }
     },
-    [selectionBox, drawingLine]
+    []
   );
 
-  const handleStageMouseUp = useCallback(
-    (e: Konva.KonvaEventObject<MouseEvent>) => {
-      // Handle connector completion first (before checking if target is stage)
-      if (drawingConnector) {
+  const handleStagePointerMove = useCallback(
+    (e: Konva.KonvaEventObject<PointerEvent>) => {
+      handlePointerMove(e);
+      handleStageMouseMove(e as any);
+
+      const dc = drawingConnectorRef.current;
+      if (dc) {
         const stage = e.target.getStage();
         if (!stage) return;
         const pos = stage.getRelativePointerPosition();
         if (!pos) return;
-        
-        const targetObj = findObjectAtPoint(objects, pos);
-        const startObj = drawingConnector.startObjectId ? objectMap.get(drawingConnector.startObjectId) ?? null : null;
-        
+
+        const curObjects = objectsRef.current;
+        const curObjectMap = objectMapRef.current;
+        const targetObj = findObjectAtPoint(curObjects, pos);
+        setHoveredObjectId(targetObj?.id || null);
+
+        const startObj = dc.startObjectId ? curObjectMap.get(dc.startObjectId) ?? null : null;
+        let startPoint = dc.startPoint;
+        let endPoint = pos;
+
+        if (targetObj) {
+          if (startObj) {
+            const anchors = getBestAnchor(startObj, targetObj);
+            startPoint = getAnchorPoint(startObj, anchors.startAnchor);
+            endPoint = getAnchorPoint(targetObj, anchors.endAnchor);
+          } else {
+            endPoint = getAnchorPoint(targetObj, "center");
+          }
+        } else if (startObj) {
+          const mousePoint = pos;
+          const anchors = getBestAnchor(startObj, { ...startObj, x: mousePoint.x - 50, y: mousePoint.y - 50, width: 100, height: 100 } as any);
+          startPoint = getAnchorPoint(startObj, anchors.startAnchor);
+          endPoint = mousePoint;
+        }
+
+        setDrawingConnector(prev => prev ? { ...prev, startPoint, endPoint } : null);
+      } else {
+        setHoveredObjectId(null);
+      }
+    },
+    [handlePointerMove, handleStageMouseMove]
+  );
+
+  const handleStageMouseUp = useCallback(
+    (e: Konva.KonvaEventObject<MouseEvent>) => {
+      const dc = drawingConnectorRef.current;
+      // Handle connector completion first (before checking if target is stage)
+      if (dc) {
+        const stage = e.target.getStage();
+        if (!stage) return;
+        const pos = stage.getRelativePointerPosition();
+        if (!pos) return;
+
+        const curObjects = objectsRef.current;
+        const curObjectMap = objectMapRef.current;
+        const targetObj = findObjectAtPoint(curObjects, pos);
+        const startObj = dc.startObjectId ? curObjectMap.get(dc.startObjectId) ?? null : null;
+
         let startAnchor: "top" | "right" | "bottom" | "left" | "center" = "center";
         let endAnchor: "top" | "right" | "bottom" | "left" | "center" = "center";
-        let startPoint = drawingConnector.startPoint;
+        let startPoint = dc.startPoint;
         let endPoint = targetObj ? getAnchorPoint(targetObj, "center") : pos;
-        
-        // Use smart anchoring if both objects exist
+
         if (startObj && targetObj) {
           const anchors = getBestAnchor(startObj, targetObj);
           startAnchor = anchors.startAnchor;
@@ -1111,49 +1311,47 @@ export function Board({
           startPoint = getAnchorPoint(startObj, startAnchor);
           endPoint = getAnchorPoint(targetObj, endAnchor);
         } else if (startObj) {
-          // If only start object exists, use smart start anchor
           const mousePoint = targetObj ? getAnchorPoint(targetObj, "center") : pos;
           const anchors = getBestAnchor(startObj, { ...startObj, x: mousePoint.x - 50, y: mousePoint.y - 50, width: 100, height: 100 } as any);
           startAnchor = anchors.startAnchor;
           startPoint = getAnchorPoint(startObj, startAnchor);
         }
-        
+
         const newConnector = {
           id: `connector-${Date.now()}`,
           type: "connector" as const,
-          startObjectId: drawingConnector.startObjectId,
+          startObjectId: dc.startObjectId,
           endObjectId: targetObj?.id || null,
           startPoint,
           endPoint,
           startAnchor,
           endAnchor,
-          style: connectorStyle,
+          style: connectorStyleRef.current,
           color: selectedShapeColor,
           strokeWidth: 2,
           arrowEnd: true,
         };
-        onObjectCreate(newConnector as any);
+        onObjectCreateRef.current(newConnector as any);
         setDrawingConnector(null);
         return;
       }
-      
+
       if (e.target !== e.target.getStage()) return;
-      
+
       // Handle line creation
-      if (drawingLine) {
-        const width = drawingLine.currentX - drawingLine.startX;
-        const height = drawingLine.currentY - drawingLine.startY;
-        
-        // Only create line if there's a minimum drag distance
+      const dl = drawingLineRef.current;
+      if (dl) {
+        const width = dl.currentX - dl.startX;
+        const height = dl.currentY - dl.startY;
+
         if (Math.abs(width) >= 10 || Math.abs(height) >= 10) {
-          // Normalize coordinates so width and height are always positive
-          const normalizedX = Math.min(drawingLine.startX, drawingLine.currentX);
-          const normalizedY = Math.min(drawingLine.startY, drawingLine.currentY);
+          const normalizedX = Math.min(dl.startX, dl.currentX);
+          const normalizedY = Math.min(dl.startY, dl.currentY);
           const normalizedWidth = Math.abs(width);
           const normalizedHeight = Math.abs(height);
-          
-          onObjectCreate({
-            id: drawingLine.id,
+
+          onObjectCreateRef.current({
+            id: dl.id,
             type: "line",
             x: normalizedX,
             y: normalizedY,
@@ -1166,9 +1364,10 @@ export function Board({
         setDrawingLine(null);
         return;
       }
-      
-      if (!selectionBox) return;
-      const { start, end } = selectionBox;
+
+      const sb = selectionBoxRef.current;
+      if (!sb) return;
+      const { start, end } = sb;
       const minX = Math.min(start.x, end.x);
       const maxX = Math.max(start.x, end.x);
       const minY = Math.min(start.y, end.y);
@@ -1182,7 +1381,7 @@ export function Board({
       }
       ignoreNextClickRef.current = true;
       const ids: string[] = [];
-      objects.forEach((obj) => {
+      objectsRef.current.forEach((obj) => {
         if (obj.type === "sticky") {
           const w = obj.width ?? 200;
           const h = obj.height ?? 80;
@@ -1208,9 +1407,9 @@ export function Board({
           if (intersects) ids.push(obj.id);
         }
       });
-      onSelect(ids);
+      onSelectRef.current(ids);
     },
-    [selectionBox, objects, onSelect, drawingLine, onObjectCreate, selectedShapeColor, drawingConnector, connectorStyle]
+    [selectedShapeColor]
   );
 
   const handleStageContextMenu = useCallback((e: Konva.KonvaEventObject<PointerEvent>) => {
@@ -1223,26 +1422,28 @@ export function Board({
   const handleStageClick = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
       // Close context menu on any left click
-      if (contextMenu) {
+      if (contextMenuRef.current) {
         setContextMenu(null);
       }
-      
+
+      const dc = drawingConnectorRef.current;
       // If we're drawing a connector, complete it
-      if (drawingConnector) {
+      if (dc) {
         const stage = e.target.getStage();
         if (!stage) return;
         const pos = stage.getRelativePointerPosition();
         if (!pos) return;
-        
-        const targetObj = findObjectAtPoint(objects, pos);
-        const startObj = drawingConnector.startObjectId ? objectMap.get(drawingConnector.startObjectId) ?? null : null;
-        
+
+        const curObjects = objectsRef.current;
+        const curObjectMap = objectMapRef.current;
+        const targetObj = findObjectAtPoint(curObjects, pos);
+        const startObj = dc.startObjectId ? curObjectMap.get(dc.startObjectId) ?? null : null;
+
         let startAnchor: "top" | "right" | "bottom" | "left" | "center" = "center";
         let endAnchor: "top" | "right" | "bottom" | "left" | "center" = "center";
-        let startPoint = drawingConnector.startPoint;
+        let startPoint = dc.startPoint;
         let endPoint = targetObj ? getAnchorPoint(targetObj, "center") : pos;
-        
-        // Use smart anchoring if both objects exist
+
         if (startObj && targetObj) {
           const anchors = getBestAnchor(startObj, targetObj);
           startAnchor = anchors.startAnchor;
@@ -1250,45 +1451,45 @@ export function Board({
           startPoint = getAnchorPoint(startObj, startAnchor);
           endPoint = getAnchorPoint(targetObj, endAnchor);
         } else if (startObj) {
-          // If only start object exists, use smart start anchor
           const mousePoint = targetObj ? getAnchorPoint(targetObj, "center") : pos;
           const anchors = getBestAnchor(startObj, { ...startObj, x: mousePoint.x - 50, y: mousePoint.y - 50, width: 100, height: 100 } as any);
           startAnchor = anchors.startAnchor;
           startPoint = getAnchorPoint(startObj, startAnchor);
         }
-        
+
         const newConnector = {
           id: `connector-${Date.now()}`,
           type: "connector" as const,
-          startObjectId: drawingConnector.startObjectId,
+          startObjectId: dc.startObjectId,
           endObjectId: targetObj?.id || null,
           startPoint,
           endPoint,
           startAnchor,
           endAnchor,
-          style: connectorStyle,
+          style: connectorStyleRef.current,
           color: selectedShapeColor,
           strokeWidth: 2,
           arrowEnd: true,
         };
-        onObjectCreate(newConnector as any);
+        onObjectCreateRef.current(newConnector as any);
         setDrawingConnector(null);
         return;
       }
-      
+
       if (e.target !== e.target.getStage()) return;
       if (ignoreNextClickRef.current) {
         ignoreNextClickRef.current = false;
         return;
       }
-      onSelect([]);
-      if (tool === "pan") return;
+      onSelectRef.current([]);
+      const curTool = toolRef.current;
+      if (curTool === "pan") return;
       const stage = e.target.getStage();
       if (!stage) return;
       const pos = stage.getRelativePointerPosition();
       if (!pos) return;
-      if (tool === "sticky") {
-        onObjectCreate({
+      if (curTool === "sticky") {
+        onObjectCreateRef.current({
           id: `sticky-${Date.now()}`,
           type: "sticky",
           x: pos.x - 75,
@@ -1299,8 +1500,8 @@ export function Board({
           color: selectedStickyColor ?? getRandomStickyColor(),
           rotation: 0,
         });
-      } else if (tool === "rectangle") {
-        onObjectCreate({
+      } else if (curTool === "rectangle") {
+        onObjectCreateRef.current({
           id: `rect-${Date.now()}`,
           type: "rectangle",
           x: pos.x,
@@ -1310,8 +1511,8 @@ export function Board({
           color: selectedShapeColor,
           rotation: 0,
         });
-      } else if (tool === "circle") {
-        onObjectCreate({
+      } else if (curTool === "circle") {
+        onObjectCreateRef.current({
           id: `circle-${Date.now()}`,
           type: "circle",
           x: pos.x,
@@ -1323,7 +1524,7 @@ export function Board({
         });
       }
     },
-    [tool, onSelect, onObjectCreate, selectedStickyColor, selectedShapeColor, drawingConnector, objects, contextMenu, connectorStyle]
+    [selectedStickyColor, selectedShapeColor]
   );
 
   const stickyObj = editingStickyId ? (objectMap.get(editingStickyId) as StickyNote | undefined) ?? null : null;
@@ -1339,12 +1540,18 @@ export function Board({
         }
       : null;
 
+  const editingStickyIdRef = useRef(editingStickyId);
+  editingStickyIdRef.current = editingStickyId;
+  const editingStickyTextRef = useRef(editingStickyText);
+  editingStickyTextRef.current = editingStickyText;
+
   const handleStickyBlur = useCallback(() => {
-    if (!editingStickyId) return;
-    const obj = editingStickyId ? (objectMap.get(editingStickyId) as StickyNote | undefined) : undefined;
-    if (obj) onObjectUpdate({ ...obj, text: editingStickyText });
+    const eid = editingStickyIdRef.current;
+    if (!eid) return;
+    const obj = objectMapRef.current.get(eid) as StickyNote | undefined;
+    if (obj) onObjectUpdateRef.current({ ...obj, text: editingStickyTextRef.current });
     setEditingStickyId(null);
-  }, [editingStickyId, editingStickyText, objects, onObjectUpdate]);
+  }, []);
 
 
   const stickyEditor =
@@ -1463,52 +1670,12 @@ export function Board({
       draggable={tool === "pan" && !selectionBox}
       style={{ position: 'relative', zIndex: 1 }}
       onWheel={handleWheel}
-      onPointerMove={(e) => {
-        handlePointerMove(e);
-        handleStageMouseMove(e);
-        // Update connector endpoint while drawing
-        if (drawingConnector) {
-          const stage = e.target.getStage();
-          if (!stage) return;
-          const pos = stage.getRelativePointerPosition();
-          if (!pos) return;
-          
-          // Check if we're hovering over an object
-          const targetObj = findObjectAtPoint(objects, pos);
-          setHoveredObjectId(targetObj?.id || null);
-          
-          // Update drawing connector with smart anchoring
-          const startObj = drawingConnector.startObjectId ? objectMap.get(drawingConnector.startObjectId) ?? null : null;
-          let startPoint = drawingConnector.startPoint;
-          let endPoint = pos;
-          
-          if (targetObj) {
-            // If hovering over target object, use smart anchoring
-            if (startObj) {
-              const anchors = getBestAnchor(startObj, targetObj);
-              startPoint = getAnchorPoint(startObj, anchors.startAnchor);
-              endPoint = getAnchorPoint(targetObj, anchors.endAnchor);
-            } else {
-              endPoint = getAnchorPoint(targetObj, "center");
-            }
-          } else if (startObj) {
-            // If not hovering over target, use smart start anchor based on mouse direction
-            const mousePoint = pos;
-            const anchors = getBestAnchor(startObj, { ...startObj, x: mousePoint.x - 50, y: mousePoint.y - 50, width: 100, height: 100 } as any);
-            startPoint = getAnchorPoint(startObj, anchors.startAnchor);
-            endPoint = mousePoint;
-          }
-          
-          setDrawingConnector(prev => prev ? { ...prev, startPoint, endPoint } : null);
-        } else {
-          setHoveredObjectId(null);
-        }
-      }}
+      onPointerMove={handleStagePointerMove}
       onMouseDown={handleStageMouseDown}
       onMouseUp={handleStageMouseUp}
       onClick={handleStageClick}
       onContextMenu={handleStageContextMenu}
-      onDragStart={() => {}}
+      onDragStart={noop}
       onDragMove={handleStageDragMove}
       onDragEnd={handleStageDragEnd}
     >
@@ -1545,12 +1712,12 @@ export function Board({
               <MemoStickyNote
                 key={obj.id}
                 obj={stickyObj}
-                isSelected={selectedIds.includes(obj.id)}
+                isSelected={selectedIdsSet.has(obj.id)}
                 isHovered={hoveredStickyId === obj.id}
                 isDragging={draggingStickyId === obj.id}
                 isEditing={editingStickyId === obj.id}
                 isConnectorTarget={hoveredObjectId === obj.id && !!drawingConnector}
-                scale={scale}
+                scaleRef={scaleRef}
                 shapeRefs={shapeRefs}
                 onDragMove={stableOnDragMove}
                 onDragEnd={stableOnDragEnd}
@@ -1572,7 +1739,7 @@ export function Board({
               <MemoRectangle
                 key={obj.id}
                 obj={rectObj}
-                isSelected={selectedIds.includes(obj.id)}
+                isSelected={selectedIdsSet.has(obj.id)}
                 isConnectorTarget={hoveredObjectId === obj.id && !!drawingConnector}
                 shapeRefs={shapeRefs}
                 onDragMove={stableOnDragMove}
@@ -1590,7 +1757,7 @@ export function Board({
               <MemoCircleObj
                 key={obj.id}
                 obj={circleObj}
-                isSelected={selectedIds.includes(obj.id)}
+                isSelected={selectedIdsSet.has(obj.id)}
                 isConnectorTarget={hoveredObjectId === obj.id && !!drawingConnector}
                 shapeRefs={shapeRefs}
                 onDragMove={stableOnDragMove}
@@ -1608,7 +1775,7 @@ export function Board({
               <MemoLineObj
                 key={obj.id}
                 obj={lineObj}
-                isSelected={selectedIds.includes(obj.id)}
+                isSelected={selectedIdsSet.has(obj.id)}
                 shapeRefs={shapeRefs}
                 onDragMove={stableOnDragMove}
                 onDragEnd={stableOnDragEnd}
@@ -1622,29 +1789,9 @@ export function Board({
           }
           if (obj.type === "connector") {
             const connector = obj as any;
-            let startPt = connector.startPoint;
-            let endPt = connector.endPoint;
-
-            let startObj = connector.startObjectId ? objectMap.get(connector.startObjectId) ?? null : null;
-            let endObj = connector.endObjectId ? objectMap.get(connector.endObjectId) ?? null : null;
-
-            if (draggingObject && startObj && startObj.type !== "connector" && startObj.id === draggingObject.id) {
-              startObj = { ...startObj, x: draggingObject.x, y: draggingObject.y };
-            }
-            if (draggingObject && endObj && endObj.type !== "connector" && endObj.id === draggingObject.id) {
-              endObj = { ...endObj, x: draggingObject.x, y: draggingObject.y };
-            }
-
-            if (startObj && endObj) {
-              const endCenter = getAnchorPoint(endObj, "center");
-              const startCenter = getAnchorPoint(startObj, "center");
-              startPt = getBestPerimeterPoint(startObj, endCenter);
-              endPt = getBestPerimeterPoint(endObj, startCenter);
-            } else if (startObj && !endObj) {
-              startPt = getBestPerimeterPoint(startObj, endPt);
-            } else if (!startObj && endObj) {
-              endPt = getBestPerimeterPoint(endObj, startPt);
-            }
+            const cached = connectorEndpoints.get(obj.id);
+            const startPt = cached?.startPt ?? connector.startPoint;
+            const endPt = cached?.endPt ?? connector.endPoint;
 
             return (
               <MemoConnector
@@ -1656,7 +1803,7 @@ export function Board({
                 connectorColor={connector.color || "#333"}
                 strokeWidth={connector.strokeWidth || 2}
                 arrowEnd={!!connector.arrowEnd}
-                isSelected={selectedIds.includes(obj.id)}
+                isSelected={selectedIdsSet.has(obj.id)}
                 shapeRefs={shapeRefs}
                 onSelect={stableOnSelect}
                 onContextMenu={handleObjectContextMenu}
@@ -1698,24 +1845,7 @@ export function Board({
           />
         )}
       </Layer>
-      <Layer listening={false}>
-        {Object.entries(cursors).map(([id, cur], i) => {
-          const color = getCursorColor(i);
-          return (
-            <Group key={id} x={cur.x} y={cur.y}>
-              <Line
-                points={[0, 0, 14, 10, 8, 10, 8, 18, 0, 14]}
-                fill={color}
-                stroke={color}
-                strokeWidth={1}
-                lineJoin="round"
-                closed
-              />
-              <Text text={cur.name} x={20} y={4} fontSize={12} fill={color} fontStyle="bold" />
-            </Group>
-          );
-        })}
-      </Layer>
+      <MemoCursorLayer cursors={cursors} />
     </Stage>
     {stickyEditor}
     {contextMenu && (

@@ -3,14 +3,99 @@ import type { BoardObject, Cursor } from "@collabboard/shared";
 import { SupabaseBoardService } from "./lib/supabase-boards";
 import { supabase } from "./lib/supabase";
 
+// Shallow-compare two board objects (fast path for echo detection)
+function boardObjectEqual(a: BoardObject, b: BoardObject): boolean {
+  if (a === b) return true;
+  if (a.type !== b.type || a.id !== b.id) return false;
+  const aa = a as any;
+  const bb = b as any;
+  // Compare positional/content fields that actually change
+  if (aa.x !== bb.x || aa.y !== bb.y) return false;
+  if (aa.width !== bb.width || aa.height !== bb.height) return false;
+  if (aa.text !== bb.text) return false;
+  if (aa.color !== bb.color) return false;
+  if (aa.rotation !== bb.rotation) return false;
+  return true;
+}
+
 export function useSupabaseBoard(userId: string, displayName: string, roomId?: string) {
   // Create unique session ID for each tab
   const [sessionId] = useState(() => `${userId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
-  
+
   const [connected, setConnected] = useState(false);
   const dragThrottleRef = useRef<{ [key: string]: number }>({});
   const [objects, setObjects] = useState<BoardObject[]>([]);
   const [cursors, setCursors] = useState<Record<string, Cursor>>({});
+
+  // Ref-based remote drag buffering — avoids calling setObjects on every ~30fps drag event
+  const remoteDragRef = useRef<Record<string, { x: number; y: number }>>({});
+  const remoteDragRafRef = useRef<number | null>(null);
+  const flushRemoteDrags = useCallback(() => {
+    const drags = remoteDragRef.current;
+    const ids = Object.keys(drags);
+    if (ids.length === 0) { remoteDragRafRef.current = null; return; }
+    setObjects(prev => {
+      let changed = false;
+      const next = prev.map(obj => {
+        const drag = drags[obj.id];
+        if (drag) { changed = true; return { ...obj, x: drag.x, y: drag.y }; }
+        return obj;
+      });
+      return changed ? next : prev;
+    });
+    remoteDragRef.current = {};
+    remoteDragRafRef.current = null;
+  }, []);
+
+  // ============= Batch Supabase realtime events =============
+  // Buffer incoming INSERT/UPDATE/DELETE events and flush once per frame.
+  // This prevents N rapid Supabase events from causing N separate re-renders.
+  const pendingRealtimeRef = useRef<{ type: 'upsert' | 'delete'; obj?: BoardObject; id?: string }[]>([]);
+  const realtimeRafRef = useRef<number | null>(null);
+  const flushRealtimeEvents = useCallback(() => {
+    const events = pendingRealtimeRef.current;
+    pendingRealtimeRef.current = [];
+    realtimeRafRef.current = null;
+    if (events.length === 0) return;
+
+    setObjects(prev => {
+      let next = prev;
+      let changed = false;
+
+      for (const event of events) {
+        if (event.type === 'upsert' && event.obj) {
+          const incoming = event.obj;
+          const idx = next.findIndex(o => o.id === incoming.id);
+          if (idx >= 0) {
+            // Skip if identical (echo of our own optimistic update)
+            if (boardObjectEqual(next[idx], incoming)) continue;
+            // Update in-place to preserve array order / z-index
+            if (!changed) { next = [...next]; changed = true; }
+            next[idx] = incoming;
+          } else {
+            // Genuinely new object (from another tab)
+            if (!changed) { next = [...next]; changed = true; }
+            next.push(incoming);
+          }
+        } else if (event.type === 'delete' && event.id) {
+          const idx = next.findIndex(o => o.id === event.id);
+          if (idx >= 0) {
+            if (!changed) { next = [...next]; changed = true; }
+            next.splice(idx, 1);
+          }
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, []);
+
+  const queueRealtimeEvent = useCallback((event: { type: 'upsert' | 'delete'; obj?: BoardObject; id?: string }) => {
+    pendingRealtimeRef.current.push(event);
+    if (!realtimeRafRef.current) {
+      realtimeRafRef.current = requestAnimationFrame(flushRealtimeEvents);
+    }
+  }, [flushRealtimeEvents]);
 
   // Batch cursor updates — collect incoming cursors and apply once per frame
   const pendingCursorsRef = useRef<Record<string, Cursor>>({});
@@ -29,7 +114,8 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     }
   }, [flushCursors]);
   const [presence, setPresence] = useState<{ userId: string; name: string }[]>([]);
-  const [boardId, setBoardId] = useState<string | null>(null);
+  const [, setBoardId] = useState<string | null>(null);
+  const boardIdRef = useRef<string | null>(null);
   const [presenceChannel, setPresenceChannel] = useState<any>(null);
 
   useEffect(() => {
@@ -52,6 +138,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
         }
 
         setBoardId(board.id);
+        boardIdRef.current = board.id;
         
         // Convert Supabase objects to legacy format for compatibility
         const legacyObjects = board.objects.map((obj: any) => 
@@ -60,23 +147,13 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
         setObjects(legacyObjects);
         setConnected(true);
 
-        // Subscribe to real-time changes
+        // Subscribe to real-time changes — batched via RAF to avoid per-event re-renders
         subscription = SupabaseBoardService.subscribeToBoard(board.id, (payload) => {
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             const legacyObject = SupabaseBoardService.convertToLegacyObject(payload.new);
-            
-            // Apply real-time update and deduplicate
-            setObjects((prev) => {
-              // Remove any existing object with the same ID first
-              const filteredObjects = prev.filter(o => o.id !== legacyObject.id);
-              
-              // Add the updated object
-              const newObjects = [...filteredObjects, legacyObject];
-              
-              return newObjects;
-            });
+            queueRealtimeEvent({ type: 'upsert', obj: legacyObject });
           } else if (payload.eventType === 'DELETE') {
-            setObjects((prev) => prev.filter(obj => obj.id !== payload.old.id));
+            queueRealtimeEvent({ type: 'delete', id: payload.old.id });
           }
         });
 
@@ -122,14 +199,12 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
           })
           // Add broadcast listener for real-time drag updates
           .on('broadcast', { event: 'object-drag' }, ({ payload }) => {
-            // Apply temporary position update during drag from other users
-            // Only apply if it's from a different session
+            // Buffer remote drag positions and flush once per frame
             if (payload.sessionId !== sessionId) {
-              setObjects(prev => prev.map(obj => 
-                obj.id === payload.objectId 
-                  ? { ...obj, x: payload.x, y: payload.y }
-                  : obj
-              ));
+              remoteDragRef.current[payload.objectId] = { x: payload.x, y: payload.y };
+              if (!remoteDragRafRef.current) {
+                remoteDragRafRef.current = requestAnimationFrame(flushRemoteDrags);
+              }
             }
           })
           // Handle drag end to reset temporary states
@@ -171,27 +246,27 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   }, [roomId, userId, displayName]);
 
 
-  const createObject = async (obj: BoardObject) => {
-    if (!boardId) return;
-    
+  const createObject = useCallback(async (obj: BoardObject) => {
+    const bid = boardIdRef.current;
+    if (!bid) return;
+
     // Add to UI immediately (optimistic update)
     setObjects(prev => [...prev, obj]);
-    
-    // Save to database
+
     try {
-      const supabaseObj = SupabaseBoardService.convertLegacyObject(obj, boardId);
-      await SupabaseBoardService.upsertBoardObject(boardId, supabaseObj);
+      const supabaseObj = SupabaseBoardService.convertLegacyObject(obj, bid);
+      await SupabaseBoardService.upsertBoardObject(bid, supabaseObj);
     } catch (error) {
       console.error('Failed to save object:', error);
-      // Remove from UI if save failed
       setObjects(prev => prev.filter(o => o.id !== obj.id));
     }
-  };
+  }, []);
 
-  const updateObject = async (obj: BoardObject) => {
-    if (!boardId) return;
-    
-    // Immediate UI update
+  const updateObject = useCallback(async (obj: BoardObject) => {
+    const bid = boardIdRef.current;
+    if (!bid) return;
+
+    // Update in-place to preserve array order
     setObjects(prev => {
       const idx = prev.findIndex(o => o.id === obj.id);
       if (idx >= 0) {
@@ -201,26 +276,24 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
       }
       return prev;
     });
-    
+
     try {
-      const supabaseObj = SupabaseBoardService.convertLegacyObject(obj, boardId);
-      await SupabaseBoardService.upsertBoardObject(boardId, supabaseObj);
+      const supabaseObj = SupabaseBoardService.convertLegacyObject(obj, bid);
+      await SupabaseBoardService.upsertBoardObject(bid, supabaseObj);
     } catch (error) {
       console.error('Failed to update object:', error);
     }
-  };
+  }, []);
 
-  const deleteObject = async (objectId: string) => {
-    // Immediate UI update
+  const deleteObject = useCallback(async (objectId: string) => {
     setObjects(prev => prev.filter(obj => obj.id !== objectId));
-    
+
     try {
       await SupabaseBoardService.deleteBoardObject(objectId);
     } catch (error) {
       console.error('Failed to delete object:', error);
-      // Could add object back on error, but for now just log
     }
-  };
+  }, []);
 
 
   const cursorThrottleRef = useRef(0);
