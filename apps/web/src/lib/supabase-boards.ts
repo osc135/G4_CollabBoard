@@ -30,6 +30,7 @@ interface SupabaseBoardObject {
   style?: string;
   stroke_width?: number;
   arrow_end?: boolean;
+  z_index?: number;
   created_at: string;
   updated_at: string;
 }
@@ -262,7 +263,7 @@ export class SupabaseBoardService {
   
   // Convert legacy board object format to Supabase format
   static convertLegacyObject(legacyObj: any, _boardId: string): Omit<SupabaseBoardObject, 'board_id' | 'created_at' | 'updated_at'> {
-    const base = {
+    const base: any = {
       id: legacyObj.id,
       type: legacyObj.type,
       x: legacyObj.x,
@@ -270,6 +271,7 @@ export class SupabaseBoardService {
       rotation: legacyObj.rotation || 0,
       color: legacyObj.color,
     };
+    if (legacyObj.zIndex != null) base.z_index = legacyObj.zIndex;
     
     if (legacyObj.type === 'connector') {
       return {
@@ -310,9 +312,10 @@ export class SupabaseBoardService {
         color: supabaseObj.color,
         strokeWidth: supabaseObj.stroke_width,
         arrowEnd: supabaseObj.arrow_end,
+        ...(supabaseObj.z_index != null ? { zIndex: supabaseObj.z_index } : {}),
       };
     }
-    
+
     return {
       id: supabaseObj.id,
       type: supabaseObj.type,
@@ -323,6 +326,7 @@ export class SupabaseBoardService {
       rotation: supabaseObj.rotation,
       text: supabaseObj.text,
       color: supabaseObj.color,
+      ...(supabaseObj.z_index != null ? { zIndex: supabaseObj.z_index } : {}),
     };
   }
 }

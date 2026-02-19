@@ -54,15 +54,16 @@ app.get("/api/room/:roomId/preview", async (req, res) => {
 // API endpoint for AI commands
 app.post("/api/ai/command", async (req, res) => {
   try {
-    const { command, roomId = "default", viewport } = req.body;
+    const { command, roomId = "default", viewport, history = [] } = req.body;
     const viewCenter = viewport || { x: 400, y: 300 };
     console.log("AI command received via API:", command, "for room:", roomId, "viewport:", viewCenter);
-    
+
     const boardState = getBoardState(roomId);
     const response = await aiService.processCommand(
       command,
       boardState.objects,
-      "api-user"
+      "api-user",
+      history
     );
     console.log("AI response:", response);
     

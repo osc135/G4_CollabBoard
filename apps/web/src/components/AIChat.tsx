@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
 
 interface Message {
   id: string;
@@ -40,7 +41,7 @@ export function AIChat({ callbacks, stageRef }: AIChatProps) {
     scrollToBottom();
   }, [messages]);
   
-  const getViewportCenter = (): { x: number; y: number } => {
+  const getViewport = (): { centerX: number; centerY: number; scale: number } => {
     if (stageRef?.current) {
       const stage = stageRef.current;
       const scale = stage.scaleX() || 1;
@@ -48,80 +49,89 @@ export function AIChat({ callbacks, stageRef }: AIChatProps) {
       const width = stage.width() || window.innerWidth;
       const height = stage.height() || window.innerHeight;
       return {
-        x: Math.round((-pos.x + width / 2) / scale),
-        y: Math.round((-pos.y + height / 2) / scale),
+        centerX: Math.round((-pos.x + width / 2) / scale),
+        centerY: Math.round((-pos.y + height / 2) / scale),
+        scale,
       };
     }
-    return { x: 400, y: 300 };
+    return { centerX: 400, centerY: 300, scale: 1 };
   };
 
   const processAICommand = async (command: string): Promise<AIResponse> => {
     try {
-      const viewport = getViewportCenter();
-      const stg = stageRef?.current;
-      console.log(`AIChat viewport: center=(${viewport.x}, ${viewport.y}) stagePos=(${stg?.x()}, ${stg?.y()}) scale=${stg?.scaleX()} stageSize=(${stg?.width()}x${stg?.height()}) hasRef=${!!stg}`);
+      const vp = getViewport();
       const response = await fetch('http://localhost:3001/api/ai/command', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ command, roomId: window.location.pathname.split('/').pop(), viewport }),
+        body: JSON.stringify({
+          command,
+          roomId: window.location.pathname.split('/').pop(),
+          viewport: { x: vp.centerX, y: vp.centerY },
+          history: messages.map(m => ({ role: m.sender === 'user' ? 'user' : 'assistant', content: m.text })),
+        }),
       });
       
       const data: AIResponse = await response.json();
       
       // Process actions locally if callbacks are provided
       if (data.actions && callbacks) {
-        const viewport = getViewportCenter();
-        const spread = () => (Math.random() - 0.5) * 300;
+        const { centerX, centerY } = getViewport();
+        // Offsets are in board coordinates — same units as object sizes — so add directly
+        const offset = (val: number | undefined) => val ?? 0;
+
         for (const action of data.actions) {
-          console.log(`AI action: ${action.tool}, args:`, JSON.stringify(action.arguments), `viewport: (${viewport.x}, ${viewport.y})`);
+          const args = action.arguments;
           if (action.tool === 'create_sticky_note' && callbacks.createObject) {
             callbacks.createObject({
               id: `sticky-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               type: 'sticky' as const,
-              x: viewport.x + spread(),
-              y: viewport.y + spread(),
+              x: centerX + offset(args.x),
+              y: centerY + offset(args.y),
               width: 200,
               height: 200,
               rotation: 0,
-              text: action.arguments.text || '',
-              color: action.arguments.color || '#ffeb3b',
-              layer: 0
+              text: args.text || '',
+              color: args.color || '#ffeb3b',
+              zIndex: args.zIndex ?? 0,
             });
           } else if (action.tool === 'create_rectangle' && callbacks.createObject) {
             callbacks.createObject({
               id: `rect-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               type: 'rectangle' as const,
-              x: viewport.x + spread(),
-              y: viewport.y + spread(),
-              width: action.arguments.width || 120,
-              height: action.arguments.height || 80,
-              color: action.arguments.color || '#2196f3',
-              rotation: 0
+              x: centerX + offset(args.x),
+              y: centerY + offset(args.y),
+              width: args.width || 120,
+              height: args.height || 80,
+              color: args.color || '#2196f3',
+              rotation: 0,
+              zIndex: args.zIndex ?? 0,
             });
           } else if (action.tool === 'create_circle' && callbacks.createObject) {
-            const size = action.arguments.size || 80;
+            const size = args.size || 80;
             callbacks.createObject({
               id: `circle-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               type: 'circle' as const,
-              x: viewport.x + spread(),
-              y: viewport.y + spread(),
+              x: centerX + offset(args.x),
+              y: centerY + offset(args.y),
               width: size,
               height: size,
-              color: action.arguments.color || '#4caf50',
-              rotation: 0
+              color: args.color || '#4caf50',
+              rotation: 0,
+              zIndex: args.zIndex ?? 0,
             });
           } else if (action.tool === 'create_line' && callbacks.createObject) {
             callbacks.createObject({
               id: `line-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               type: 'line' as const,
-              x: viewport.x + spread(),
-              y: viewport.y + spread(),
-              width: action.arguments.width || 200,
-              height: action.arguments.height || 0,
-              color: action.arguments.color || '#333333',
-              rotation: 0
+              x: centerX + offset(args.x),
+              y: centerY + offset(args.y),
+              width: args.width || 200,
+              height: args.height || 0,
+              color: args.color || '#333333',
+              rotation: 0,
+              zIndex: args.zIndex ?? 0,
             });
           }
         }
@@ -354,7 +364,19 @@ export function AIChat({ callbacks, stageRef }: AIChatProps) {
                         color: message.sender === 'user' ? 'white' : '#374151',
                         wordBreak: 'break-word'
                       }}>
-                        <p style={{ margin: 0, fontSize: '14px' }}>{message.text}</p>
+                        {message.sender === 'ai' ? (
+                          <div style={{ margin: 0, fontSize: '14px', lineHeight: 1.5 }}>
+                            <ReactMarkdown components={{
+                              p: ({ children }) => <p style={{ margin: '4px 0' }}>{children}</p>,
+                              strong: ({ children }) => <strong style={{ fontWeight: 600 }}>{children}</strong>,
+                              ol: ({ children }) => <ol style={{ margin: '4px 0', paddingLeft: '20px' }}>{children}</ol>,
+                              ul: ({ children }) => <ul style={{ margin: '4px 0', paddingLeft: '20px' }}>{children}</ul>,
+                              li: ({ children }) => <li style={{ margin: '2px 0' }}>{children}</li>,
+                            }}>{message.text}</ReactMarkdown>
+                          </div>
+                        ) : (
+                          <p style={{ margin: 0, fontSize: '14px' }}>{message.text}</p>
+                        )}
                       </div>
                     </div>
                   ))}
