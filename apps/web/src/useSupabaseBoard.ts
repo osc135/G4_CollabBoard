@@ -143,6 +143,8 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   }, [flushCursors]);
   const [presence, setPresence] = useState<{ userId: string; name: string }[]>([]);
   const [remoteSelections, setRemoteSelections] = useState<Record<string, { sessionId: string; selectedIds: string[] }>>({});
+  const [remoteEditingMap, setRemoteEditingMap] = useState<Record<string, { sessionId: string; name: string }>>({});
+  const [remoteDraggingIds, setRemoteDraggingIds] = useState<Set<string>>(new Set());
   const [, setBoardId] = useState<string | null>(null);
   const boardIdRef = useRef<string | null>(null);
   const [presenceChannel, setPresenceChannel] = useState<any>(null);
@@ -223,6 +225,14 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
               });
               return next;
             });
+            setRemoteEditingMap(prev => {
+              const leftSessionIds = new Set(leftPresences.map((p: any) => p.sessionId).filter(Boolean));
+              const next: typeof prev = {};
+              for (const [objId, editor] of Object.entries(prev)) {
+                if (!leftSessionIds.has(editor.sessionId)) next[objId] = editor;
+              }
+              return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+            });
           })
           // Add broadcast listener for real-time cursor updates
           .on('broadcast', { event: 'cursor-move' }, ({ payload }) => {
@@ -244,11 +254,18 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
               if (!remoteDragRafRef.current) {
                 remoteDragRafRef.current = requestAnimationFrame(flushRemoteDrags);
               }
+              setRemoteDraggingIds(prev => prev.has(payload.objectId) ? prev : new Set(prev).add(payload.objectId));
             }
           })
-          // Handle drag end to reset temporary states
-          .on('broadcast', { event: 'object-drag-end' }, () => {
-            // The actual database update will come through the regular subscription
+          .on('broadcast', { event: 'object-drag-end' }, ({ payload }) => {
+            if (payload.sessionId !== sessionId && payload.objectId) {
+              setRemoteDraggingIds(prev => {
+                if (!prev.has(payload.objectId)) return prev;
+                const next = new Set(prev);
+                next.delete(payload.objectId);
+                return next;
+              });
+            }
           })
           .on('broadcast', { event: 'object-selection' }, ({ payload }) => {
             if (payload.sessionId !== sessionId) {
@@ -263,6 +280,22 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
               remoteTextRef.current[payload.objectId] = payload.text;
               if (!remoteTextRafRef.current) {
                 remoteTextRafRef.current = requestAnimationFrame(flushRemoteTexts);
+              }
+            }
+          })
+          .on('broadcast', { event: 'sticky-edit-lock' }, ({ payload }) => {
+            if (payload.sessionId !== sessionId) {
+              if (payload.action === 'lock') {
+                setRemoteEditingMap(prev => ({
+                  ...prev,
+                  [payload.objectId]: { sessionId: payload.sessionId, name: payload.name },
+                }));
+              } else {
+                setRemoteEditingMap(prev => {
+                  const next = { ...prev };
+                  delete next[payload.objectId];
+                  return next;
+                });
               }
             }
           })
@@ -448,6 +481,30 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     });
   }, [presenceChannel, sessionId]);
 
+  const emitStickyLock = useCallback((objectId: string) => {
+    if (!presenceChannel) return;
+    presenceChannel.httpSend('sticky-edit-lock', {
+      sessionId,
+      name: displayName,
+      objectId,
+      action: 'lock',
+    }).catch((error: any) => {
+      console.error('Failed to broadcast sticky lock:', error);
+    });
+  }, [presenceChannel, sessionId, displayName]);
+
+  const emitStickyUnlock = useCallback((objectId: string) => {
+    if (!presenceChannel) return;
+    presenceChannel.httpSend('sticky-edit-lock', {
+      sessionId,
+      name: displayName,
+      objectId,
+      action: 'unlock',
+    }).catch((error: any) => {
+      console.error('Failed to broadcast sticky unlock:', error);
+    });
+  }, [presenceChannel, sessionId, displayName]);
+
   const emitSelection = useCallback((selectedIds: string[]) => {
     if (!presenceChannel) return;
     presenceChannel.httpSend('object-selection', {
@@ -464,9 +521,13 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     cursors,
     presence,
     remoteSelections,
+    remoteEditingMap,
+    remoteDraggingIds,
     emitCursor,
     emitSelection,
     emitTextEdit,
+    emitStickyLock,
+    emitStickyUnlock,
     emitObjectDrag,
     emitObjectDragEnd,
     createObject,
