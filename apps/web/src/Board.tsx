@@ -21,7 +21,11 @@ interface BoardProps {
   onObjectDrag?: (objectId: string, x: number, y: number, rotation?: number) => void;
   onObjectDragEnd?: (objectId: string, x: number, y: number) => void;
   remoteSelections?: Record<string, { sessionId: string; selectedIds: string[] }>;
+  remoteEditingMap?: Record<string, { sessionId: string; name: string }>;
+  remoteDraggingIds?: Set<string>;
   onTextEdit?: (objectId: string, text: string) => void;
+  onStickyLock?: (objectId: string) => void;
+  onStickyUnlock?: (objectId: string) => void;
   stageRef: React.RefObject<Konva.Stage | null>;
 }
 
@@ -221,7 +225,8 @@ interface MemoStickyProps extends ObjectHandlers {
   isDragging: boolean;
   isEditing: boolean;
   isConnectorTarget: boolean;
-  scaleRef: React.MutableRefObject<number>;
+  scale: number;
+  remoteEditor?: { name: string; color: string };
   shapeRefs: React.MutableRefObject<Record<string, Konva.Group>>;
   onStickyDragStart: (id: string) => void;
   onStickyDragEnd: (id: string, obj: BoardObject, x: number, y: number, rotation: number) => void;
@@ -234,11 +239,10 @@ const CACHE_PADDING = 20;
 const CACHE_PIXEL_RATIO = Math.min(window.devicePixelRatio || 1, 2);
 
 const MemoStickyNote = React.memo<MemoStickyProps>(({
-  obj, isSelected, isHovered, isDragging, isEditing, isConnectorTarget, scaleRef,
+  obj, isSelected, isHovered, isDragging, isEditing, isConnectorTarget, scale, remoteEditor,
   shapeRefs, onDragMove, onStickyDragStart, onStickyDragEnd, onSelect, onContextMenu,
   onDblClick, onHoverEnter, onHoverLeave, onTransform, onTransformEnd, onCursorMove,
 }) => {
-  const scale = scaleRef.current;
   const w = obj.width;
   const h = obj.height;
   const rot = obj.rotation ?? 0;
@@ -389,6 +393,27 @@ const MemoStickyNote = React.memo<MemoStickyProps>(({
           wrap="word"
           listening={false}
         />
+      )}
+      {remoteEditor && (
+        <Group x={4} y={h - 22} listening={false}>
+          <Rect
+            width={Math.min(w - 8, remoteEditor.name.length * 7 + 16)}
+            height={18}
+            fill={remoteEditor.color}
+            cornerRadius={9}
+            opacity={0.9}
+          />
+          <Text
+            text={`${remoteEditor.name} editing`}
+            x={8}
+            y={3}
+            fontSize={10}
+            fontFamily="system-ui, -apple-system, sans-serif"
+            fontStyle="bold"
+            fill="#ffffff"
+            listening={false}
+          />
+        </Group>
       )}
       {isHovered && (() => {
         const size = 22;
@@ -837,7 +862,11 @@ export function Board({
   onObjectDrag,
   onObjectDragEnd,
   remoteSelections = {},
+  remoteEditingMap = {},
+  remoteDraggingIds = new Set(),
   onTextEdit,
+  onStickyLock,
+  onStickyUnlock,
   stageRef,
   selectedStickyColor,
   selectedShapeColor = "#3b82f6",
@@ -890,6 +919,12 @@ export function Board({
   onCursorMoveRef.current = onCursorMove;
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
+  const onStickyLockRef = useRef(onStickyLock);
+  onStickyLockRef.current = onStickyLock;
+  const onStickyUnlockRef = useRef(onStickyUnlock);
+  onStickyUnlockRef.current = onStickyUnlock;
+  const remoteEditingMapRef = useRef(remoteEditingMap);
+  remoteEditingMapRef.current = remoteEditingMap;
 
   // ============= Refs for mutable state used in callbacks =============
   const objectsRef = useRef(objects);
@@ -932,6 +967,18 @@ export function Board({
     }
     return map;
   }, [remoteSelections, cursors]);
+
+  // ============= Remote editing indicator map (objectId → { name, color }) =============
+  const remoteEditorMap = useMemo(() => {
+    const map: Record<string, { name: string; color: string }> = {};
+    const cursorSessionIds = Object.keys(cursors);
+    for (const [objId, editor] of Object.entries(remoteEditingMap)) {
+      const colorIndex = cursorSessionIds.indexOf(editor.sessionId);
+      const color = getCursorColor(colorIndex >= 0 ? colorIndex : 0);
+      map[objId] = { name: editor.name, color };
+    }
+    return map;
+  }, [remoteEditingMap, cursors]);
 
   // ============= Throttled drag state (connectors only need ~15fps) =============
   const draggingObjectRef = useRef<{ id: string; x: number; y: number } | null>(null);
@@ -1002,6 +1049,9 @@ export function Board({
   }, []);
 
   const stableOnStickyDblClick = useCallback((id: string, text: string) => {
+    // Block editing if another user has this sticky locked
+    if (remoteEditingMapRef.current[id]) return;
+    onStickyLockRef.current?.(id);
     setEditingStickyId(id);
     setEditingStickyText(text === "New note" ? "" : text);
   }, []);
@@ -1588,10 +1638,10 @@ export function Board({
         onObjectCreateRef.current({
           id: `sticky-${Date.now()}`,
           type: "sticky",
-          x: pos.x - 75,
-          y: pos.y - 50,
-          width: 150,
-          height: 100,
+          x: pos.x - 100,
+          y: pos.y - 100,
+          width: 200,
+          height: 200,
           text: "New note",
           color: selectedStickyColor ?? getRandomStickyColor(),
           rotation: 0,
@@ -1646,6 +1696,7 @@ export function Board({
     if (!eid) return;
     const obj = objectMapRef.current.get(eid) as StickyNote | undefined;
     if (obj) onObjectUpdateRef.current({ ...obj, text: editingStickyTextRef.current });
+    onStickyUnlockRef.current?.(eid);
     setEditingStickyId(null);
   }, []);
 
@@ -1682,6 +1733,7 @@ export function Board({
             onKeyDown={(e) => {
               if (e.key === "Escape") {
                 setEditingStickyText(stickyObj.text === "New note" ? "" : stickyObj.text);
+                onStickyUnlock?.(editingStickyId!);
                 setEditingStickyId(null);
                 stickyInputRef.current?.blur();
               }
@@ -1813,10 +1865,11 @@ export function Board({
                 obj={stickyObj}
                 isSelected={selectedIdsSet.has(obj.id)}
                 isHovered={hoveredStickyId === obj.id}
-                isDragging={draggingStickyId === obj.id}
+                isDragging={draggingStickyId === obj.id || remoteDraggingIds.has(obj.id)}
                 isEditing={editingStickyId === obj.id}
                 isConnectorTarget={hoveredObjectId === obj.id && !!drawingConnector}
-                scaleRef={scaleRef}
+                scale={scale}
+                remoteEditor={remoteEditorMap[obj.id]}
                 shapeRefs={shapeRefs}
                 onDragMove={stableOnDragMove}
                 onDragEnd={stableOnDragEnd}
