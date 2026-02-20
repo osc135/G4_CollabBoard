@@ -394,6 +394,7 @@ BOARD STATE:
 The board currently has ${boardObjects.length} objects.
 Sticky notes: ${boardObjects.filter(o => o.type === 'sticky').length}
 Shapes: ${boardObjects.filter(o => ['rectangle', 'circle', 'line'].includes(o.type)).length}
+There is NO maximum object limit. The board can hold unlimited objects. Never refuse a request due to a perceived object cap.
 
 CURRENT OBJECTS ON BOARD:
 ${objectSummary || '(empty board)'}
@@ -429,9 +430,11 @@ Choose colors that make sense (e.g. white for snow, brown for wood, blue for ice
 
 RESPONSE RULES:
 - When the user asks you to create or draw ANYTHING, you MUST call the appropriate tools. NEVER just describe what you would do — actually do it.
+- COMPLETE THE FULL REQUEST: If the user asks for 100 sticky notes, create ALL 100. If they ask for 50 circles, create ALL 50. NEVER create a partial batch and ask "would you like me to continue?" or "shall I add more?". Fulfill the ENTIRE quantity in one go by making multiple tool calls. There is NO limit on how many objects you can create.
 - After creating objects, briefly describe what you made (e.g. "Here's a 3x3 grid of blue rectangles!" or "Here's your snowman with a top hat and scarf!").
 - If the user asks for something you cannot do with the available tools, say "Sorry, I'm unable to do that — I can create sticky notes, rectangles, circles, and lines, delete objects, or clear the board."
 - NEVER respond with just "I can help you with that" — either create the objects or explain why you can't.
+- NEVER ask for confirmation before fulfilling a request. Just do it.
 - MULTI-TASK: When the user asks for multiple things in one message (e.g. "organize the board and tell me what's on it", "create a red circle and delete the blue one"), handle ALL requests by calling multiple tools in a single response. Do not only address one part of the request.
 - To delete specific objects, use delete_object with the object's ID from the CURRENT OBJECTS list above.
 - To clear the entire board, use clear_board.
@@ -456,7 +459,7 @@ RESPONSE RULES:
         }));
 
       // --- Tool-call loop: allows the model to call multiple tools across iterations ---
-      const MAX_TOOL_ITERATIONS = 3;
+      const MAX_TOOL_ITERATIONS = 10;
       const actions: any[] = [];
       const conversationMessages: OpenAI.ChatCompletionMessageParam[] = [
         { role: 'system', content: systemMessage },

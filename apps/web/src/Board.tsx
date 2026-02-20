@@ -227,6 +227,9 @@ interface MemoStickyProps extends ObjectHandlers {
   onHoverLeave: () => void;
 }
 
+const CACHE_PADDING = 20;
+const CACHE_PIXEL_RATIO = Math.min(window.devicePixelRatio || 1, 2);
+
 const MemoStickyNote = React.memo<MemoStickyProps>(({
   obj, isSelected, isHovered, isDragging, isEditing, isConnectorTarget, scaleRef,
   shapeRefs, onDragMove, onStickyDragStart, onStickyDragEnd, onSelect, onContextMenu,
@@ -236,11 +239,22 @@ const MemoStickyNote = React.memo<MemoStickyProps>(({
   const w = obj.width;
   const h = obj.height;
   const rot = obj.rotation ?? 0;
+  const cacheRef = useRef<Konva.Group | null>(null);
+
+  useLayoutEffect(() => {
+    const node = cacheRef.current;
+    if (node) {
+      try { node.cache({ offset: CACHE_PADDING, pixelRatio: CACHE_PIXEL_RATIO }); } catch (_) {}
+    }
+  });
 
   return (
     <Group
       key={obj.id}
-      ref={(el) => { if (el) shapeRefs.current[obj.id] = el; }}
+      ref={(el) => {
+        cacheRef.current = el;
+        if (el) shapeRefs.current[obj.id] = el;
+      }}
       x={obj.x + w / 2}
       y={obj.y + h / 2}
       offsetX={w / 2}
@@ -295,6 +309,8 @@ const MemoStickyNote = React.memo<MemoStickyProps>(({
           shadowOpacity={0.5}
           stroke={isSelected ? "#1e293b" : isConnectorTarget ? "#3b82f6" : undefined}
           strokeWidth={isSelected ? 2.5 : isConnectorTarget ? 3 : 0}
+          perfectDrawEnabled={false}
+          shadowForStrokeEnabled={false}
         />
       ) : (
         <Shape
@@ -345,6 +361,8 @@ const MemoStickyNote = React.memo<MemoStickyProps>(({
             shadowColor="rgba(0,0,0,0.3)"
             shadowBlur={3}
             shadowOffsetY={1}
+            perfectDrawEnabled={false}
+            shadowForStrokeEnabled={false}
           />
           <Circle radius={2} fill="#fca5a5" y={-1} />
           <Line points={[0, 6, 0, 16]} stroke="#7f1d1d" strokeWidth={2.5} lineCap="round" listening={false} />
@@ -424,11 +442,22 @@ const MemoRectangle = React.memo<MemoRectProps>(({
   const w = obj.width;
   const h = obj.height;
   const rot = obj.rotation ?? 0;
+  const cacheRef = useRef<Konva.Group | null>(null);
+
+  useLayoutEffect(() => {
+    const node = cacheRef.current;
+    if (node) {
+      try { node.cache({ offset: CACHE_PADDING, pixelRatio: CACHE_PIXEL_RATIO }); } catch (_) {}
+    }
+  });
 
   return (
     <Group
       key={obj.id}
-      ref={(el) => { if (el) shapeRefs.current[obj.id] = el; }}
+      ref={(el) => {
+        cacheRef.current = el;
+        if (el) shapeRefs.current[obj.id] = el;
+      }}
       x={obj.x + w / 2}
       y={obj.y + h / 2}
       offsetX={w / 2}
@@ -478,6 +507,8 @@ const MemoRectangle = React.memo<MemoRectProps>(({
         shadowOpacity={0.4}
         stroke={isSelected ? "#1e293b" : isConnectorTarget ? "#3b82f6" : undefined}
         strokeWidth={isSelected ? 2.5 : isConnectorTarget ? 3 : 0}
+        perfectDrawEnabled={false}
+        shadowForStrokeEnabled={false}
       />
     </Group>
   );
@@ -500,11 +531,22 @@ const MemoCircleObj = React.memo<MemoCircleProps>(({
   const h = obj.height;
   const r = Math.min(w, h) / 2;
   const rot = obj.rotation ?? 0;
+  const cacheRef = useRef<Konva.Group | null>(null);
+
+  useLayoutEffect(() => {
+    const node = cacheRef.current;
+    if (node) {
+      try { node.cache({ offset: CACHE_PADDING, pixelRatio: CACHE_PIXEL_RATIO }); } catch (_) {}
+    }
+  });
 
   return (
     <Group
       key={obj.id}
-      ref={(el) => { if (el) shapeRefs.current[obj.id] = el; }}
+      ref={(el) => {
+        cacheRef.current = el;
+        if (el) shapeRefs.current[obj.id] = el;
+      }}
       x={obj.x + w / 2}
       y={obj.y + h / 2}
       offsetX={w / 2}
@@ -552,6 +594,8 @@ const MemoCircleObj = React.memo<MemoCircleProps>(({
         shadowOpacity={0.4}
         stroke={isSelected ? "#1e293b" : isConnectorTarget ? "#3b82f6" : undefined}
         strokeWidth={isSelected ? 2.5 : isConnectorTarget ? 3 : 0}
+        perfectDrawEnabled={false}
+        shadowForStrokeEnabled={false}
       />
     </Group>
   );
@@ -573,11 +617,22 @@ const MemoLineObj = React.memo<MemoLineProps>(({
   const w = obj.width;
   const h = obj.height;
   const rot = obj.rotation ?? 0;
+  const cacheRef = useRef<Konva.Group | null>(null);
+
+  useLayoutEffect(() => {
+    const node = cacheRef.current;
+    if (node) {
+      try { node.cache({ offset: CACHE_PADDING, pixelRatio: CACHE_PIXEL_RATIO }); } catch (_) {}
+    }
+  });
 
   return (
     <Group
       key={obj.id}
-      ref={(el) => { if (el) shapeRefs.current[obj.id] = el; }}
+      ref={(el) => {
+        cacheRef.current = el;
+        if (el) shapeRefs.current[obj.id] = el;
+      }}
       x={obj.x}
       y={obj.y}
       rotation={rot}
@@ -615,6 +670,7 @@ const MemoLineObj = React.memo<MemoLineProps>(({
         shadowBlur={4}
         shadowOffsetY={1}
         shadowOpacity={0.3}
+        perfectDrawEnabled={false}
       />
       {isSelected && (
         <>
