@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { Langfuse } from 'langfuse';
 import type { BoardObject } from '@collabboard/shared';
 import dotenv from 'dotenv';
@@ -99,9 +99,9 @@ function isBoardRelated(input: string): { allowed: boolean; reason?: string } {
   return { allowed: true };
 }
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+// Initialize Anthropic client
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
 // Initialize Langfuse client for observability
@@ -111,215 +111,182 @@ const langfuse = new Langfuse({
   baseUrl: process.env.LANGFUSE_HOST || 'https://cloud.langfuse.com',
 });
 
-// Tool definitions for OpenAI function calling
-const zIndexParam = {
-  type: 'number' as const,
-  description: 'Z-order index (0–100). Lower = further back, higher = in front. Example: background/ground=5, large body parts=20, medium parts=35, head=45, small details like eyes/buttons=60, accessories on top=75.',
-};
+// Tool definitions for Anthropic tool use
+const zIndexDescription = 'Z-order index (0–100). Lower = further back, higher = in front. Example: background/ground=5, large body parts=20, medium parts=35, head=45, small details like eyes/buttons=60, accessories on top=75.';
 
-const tools: OpenAI.ChatCompletionTool[] = [
+const tools: Anthropic.Tool[] = [
   {
-    type: 'function',
-    function: {
-      name: 'create_sticky_note',
-      description: 'Create a sticky note, positioned by x/y offset from the center of the user\'s screen.',
-      parameters: {
-        type: 'object',
-        properties: {
-          text: { type: 'string', description: 'The text content of the sticky note' },
-          color: { type: 'string', enum: ['#ffeb3b', '#4caf50', '#ff9800', '#f44336', '#2196f3', '#9c27b0'], description: 'The color of the sticky note' },
-          x: { type: 'number', description: 'Horizontal offset from screen center (px). 0 = center.' },
-          y: { type: 'number', description: 'Vertical offset from screen center (px). 0 = center.' },
-          zIndex: zIndexParam,
-        },
-        required: ['text'],
+    name: 'create_sticky_note',
+    description: 'Create a sticky note, positioned by x/y offset from the center of the user\'s screen.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        text: { type: 'string', description: 'The text content of the sticky note' },
+        color: { type: 'string', enum: ['#ffeb3b', '#4caf50', '#ff9800', '#f44336', '#2196f3', '#9c27b0'], description: 'The color of the sticky note' },
+        x: { type: 'number', description: 'Horizontal offset from screen center (px). 0 = center.' },
+        y: { type: 'number', description: 'Vertical offset from screen center (px). 0 = center.' },
+        zIndex: { type: 'number', description: zIndexDescription },
       },
+      required: ['text'],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'create_rectangle',
-      description: 'Create a rectangle, positioned by x/y offset from the center of the user\'s screen.',
-      parameters: {
-        type: 'object',
-        properties: {
-          color: { type: 'string', description: 'Fill color (hex code)' },
-          x: { type: 'number', description: 'Horizontal offset from screen center (px). 0 = center.' },
-          y: { type: 'number', description: 'Vertical offset from screen center (px). 0 = center.' },
-          width: { type: 'number', description: 'Width in px (default 120)' },
-          height: { type: 'number', description: 'Height in px (default 80)' },
-          zIndex: zIndexParam,
-        },
-        required: [],
+    name: 'create_rectangle',
+    description: 'Create a rectangle, positioned by x/y offset from the center of the user\'s screen.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        color: { type: 'string', description: 'Fill color (hex code)' },
+        x: { type: 'number', description: 'Horizontal offset from screen center (px). 0 = center.' },
+        y: { type: 'number', description: 'Vertical offset from screen center (px). 0 = center.' },
+        width: { type: 'number', description: 'Width in px (default 120)' },
+        height: { type: 'number', description: 'Height in px (default 80)' },
+        zIndex: { type: 'number', description: zIndexDescription },
       },
+      required: [],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'create_circle',
-      description: 'Create a circle, positioned by x/y offset from the center of the user\'s screen.',
-      parameters: {
-        type: 'object',
-        properties: {
-          color: { type: 'string', description: 'Fill color (hex code)' },
-          x: { type: 'number', description: 'Horizontal offset from screen center (px). 0 = center.' },
-          y: { type: 'number', description: 'Vertical offset from screen center (px). 0 = center.' },
-          size: { type: 'number', description: 'Diameter in px (default 80)' },
-          zIndex: zIndexParam,
-        },
-        required: [],
+    name: 'create_circle',
+    description: 'Create a circle, positioned by x/y offset from the center of the user\'s screen.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        color: { type: 'string', description: 'Fill color (hex code)' },
+        x: { type: 'number', description: 'Horizontal offset from screen center (px). 0 = center.' },
+        y: { type: 'number', description: 'Vertical offset from screen center (px). 0 = center.' },
+        size: { type: 'number', description: 'Diameter in px (default 80)' },
+        zIndex: { type: 'number', description: zIndexDescription },
       },
+      required: [],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'create_line',
-      description: 'Create a line, positioned by x/y offset from the center of the user\'s screen.',
-      parameters: {
-        type: 'object',
-        properties: {
-          color: { type: 'string', description: 'Stroke color (hex code)' },
-          x: { type: 'number', description: 'Horizontal offset from screen center (px) for line start.' },
-          y: { type: 'number', description: 'Vertical offset from screen center (px) for line start.' },
-          width: { type: 'number', description: 'Horizontal extent in px (default 200)' },
-          height: { type: 'number', description: 'Vertical extent in px (default 0 for horizontal)' },
-          zIndex: zIndexParam,
-        },
-        required: [],
+    name: 'create_line',
+    description: 'Create a line, positioned by x/y offset from the center of the user\'s screen.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        color: { type: 'string', description: 'Stroke color (hex code)' },
+        x: { type: 'number', description: 'Horizontal offset from screen center (px) for line start.' },
+        y: { type: 'number', description: 'Vertical offset from screen center (px) for line start.' },
+        width: { type: 'number', description: 'Horizontal extent in px (default 200)' },
+        height: { type: 'number', description: 'Vertical extent in px (default 0 for horizontal)' },
+        zIndex: { type: 'number', description: zIndexDescription },
       },
+      required: [],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'move_object',
-      description: 'Move a single existing object to a new position. x/y are offsets from the center of the user\'s screen (same coordinate system as create tools). Use for repositioning one or a few specific objects — NOT for bulk organization (use organize_board instead).',
-      parameters: {
-        type: 'object',
-        properties: {
-          id: { type: 'string', description: 'The ID of the object to move (from the CURRENT OBJECTS list)' },
-          x: { type: 'number', description: 'Horizontal offset from screen center (px). 0 = center.' },
-          y: { type: 'number', description: 'Vertical offset from screen center (px). 0 = center.' },
-        },
-        required: ['id', 'x', 'y'],
+    name: 'move_object',
+    description: 'Move a single existing object to a new position. x/y are offsets from the center of the user\'s screen (same coordinate system as create tools). Use for repositioning one or a few specific objects — NOT for bulk organization (use organize_board instead).',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'The ID of the object to move (from the CURRENT OBJECTS list)' },
+        x: { type: 'number', description: 'Horizontal offset from screen center (px). 0 = center.' },
+        y: { type: 'number', description: 'Vertical offset from screen center (px). 0 = center.' },
       },
+      required: ['id', 'x', 'y'],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'organize_board',
-      description: 'Rearrange ALL objects on the board into a clean layout. Use this whenever the user asks to organize, arrange, tidy, sort, or lay out their board. This moves every object — much better than calling move_object many times.',
-      parameters: {
-        type: 'object',
-        properties: {
-          strategy: {
-            type: 'string',
-            enum: ['grid', 'by_type', 'by_color'],
-            description: 'Layout strategy: "grid" = neat rows/columns, "by_type" = group stickies/rectangles/circles together, "by_color" = group by color',
+    name: 'organize_board',
+    description: 'Rearrange ALL objects on the board into a clean layout. Use this whenever the user asks to organize, arrange, tidy, sort, or lay out their board. This moves every object — much better than calling move_object many times.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        strategy: {
+          type: 'string',
+          enum: ['grid', 'by_type', 'by_color'],
+          description: 'Layout strategy: "grid" = neat rows/columns, "by_type" = group stickies/rectangles/circles together, "by_color" = group by color',
+        },
+      },
+      required: ['strategy'],
+    },
+  },
+  {
+    name: 'delete_object',
+    description: 'Delete a specific object from the board by its ID',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'The ID of the object to delete' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'clear_board',
+    description: 'Remove all objects from the board',
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'analyze_board',
+    description: 'Analyze the current board state and provide insights',
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'update_object',
+    description: 'Edit properties of a single existing object. Only the provided fields will be changed; omitted fields stay the same.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'The ID of the object to update (from the CURRENT OBJECTS list)' },
+        color: { type: 'string', description: 'New fill/stroke color (hex code)' },
+        text: { type: 'string', description: 'New text content (sticky notes only)' },
+        width: { type: 'number', description: 'New width in px' },
+        height: { type: 'number', description: 'New height in px' },
+        zIndex: { type: 'number', description: zIndexDescription },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'bulk_update_objects',
+    description: 'Update multiple objects at once. Two modes: (1) Use "filter" to update ALL objects matching a type — best for "change all stickies to blue". (2) Use "updates" array with specific IDs — best when each object gets a different value. You can use both together: filter applies first, then individual updates override.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        filter: {
+          type: 'object',
+          description: 'Apply the same changes to ALL objects matching this filter. Much better than listing every ID.',
+          properties: {
+            type: { type: 'string', enum: ['sticky', 'rectangle', 'circle', 'line'], description: 'Only update objects of this type' },
+            color: { type: 'string', description: 'New fill/stroke color (hex code) to apply to all matched objects' },
+            text: { type: 'string', description: 'New text content to apply to all matched objects' },
+            width: { type: 'number', description: 'New width to apply to all matched objects' },
+            height: { type: 'number', description: 'New height to apply to all matched objects' },
+            zIndex: { type: 'number', description: zIndexDescription },
           },
+          required: ['type'],
         },
-        required: ['strategy'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'delete_object',
-      description: 'Delete a specific object from the board by its ID',
-      parameters: {
-        type: 'object',
-        properties: {
-          id: { type: 'string', description: 'The ID of the object to delete' },
-        },
-        required: ['id'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'clear_board',
-      description: 'Remove all objects from the board',
-      parameters: {
-        type: 'object',
-        properties: {},
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'analyze_board',
-      description: 'Analyze the current board state and provide insights',
-      parameters: {
-        type: 'object',
-        properties: {},
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'update_object',
-      description: 'Edit properties of a single existing object. Only the provided fields will be changed; omitted fields stay the same.',
-      parameters: {
-        type: 'object',
-        properties: {
-          id: { type: 'string', description: 'The ID of the object to update (from the CURRENT OBJECTS list)' },
-          color: { type: 'string', description: 'New fill/stroke color (hex code)' },
-          text: { type: 'string', description: 'New text content (sticky notes only)' },
-          width: { type: 'number', description: 'New width in px' },
-          height: { type: 'number', description: 'New height in px' },
-          zIndex: zIndexParam,
-        },
-        required: ['id'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'bulk_update_objects',
-      description: 'Update multiple objects at once. Two modes: (1) Use "filter" to update ALL objects matching a type — best for "change all stickies to blue". (2) Use "updates" array with specific IDs — best when each object gets a different value. You can use both together: filter applies first, then individual updates override.',
-      parameters: {
-        type: 'object',
-        properties: {
-          filter: {
+        updates: {
+          type: 'array',
+          items: {
             type: 'object',
-            description: 'Apply the same changes to ALL objects matching this filter. Much better than listing every ID.',
             properties: {
-              type: { type: 'string', enum: ['sticky', 'rectangle', 'circle', 'line'], description: 'Only update objects of this type' },
-              color: { type: 'string', description: 'New fill/stroke color (hex code) to apply to all matched objects' },
-              text: { type: 'string', description: 'New text content to apply to all matched objects' },
-              width: { type: 'number', description: 'New width to apply to all matched objects' },
-              height: { type: 'number', description: 'New height to apply to all matched objects' },
-              zIndex: zIndexParam,
+              id: { type: 'string', description: 'The ID of the object to update' },
+              color: { type: 'string', description: 'New fill/stroke color (hex code)' },
+              text: { type: 'string', description: 'New text content (sticky notes only)' },
+              width: { type: 'number', description: 'New width in px' },
+              height: { type: 'number', description: 'New height in px' },
+              zIndex: { type: 'number', description: zIndexDescription },
             },
-            required: ['type'],
+            required: ['id'],
           },
-          updates: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                id: { type: 'string', description: 'The ID of the object to update' },
-                color: { type: 'string', description: 'New fill/stroke color (hex code)' },
-                text: { type: 'string', description: 'New text content (sticky notes only)' },
-                width: { type: 'number', description: 'New width in px' },
-                height: { type: 'number', description: 'New height in px' },
-                zIndex: zIndexParam,
-              },
-              required: ['id'],
-            },
-            description: 'Array of per-object updates (each needs an id). Use for different values per object.',
-          },
+          description: 'Array of per-object updates (each needs an id). Use for different values per object.',
         },
       },
+      required: [],
     },
   },
 ];
@@ -341,7 +308,7 @@ export class AIService {
     error?: string;
   }> {
     try {
-      // Input filter: reject off-topic or malicious messages before calling OpenAI
+      // Input filter: reject off-topic or malicious messages before calling the AI
       const filterResult = isBoardRelated(command);
       if (!filterResult.allowed) {
         console.log(`Input filter blocked message (${filterResult.reason}): "${command.slice(0, 80)}..."`);
@@ -356,7 +323,6 @@ export class AIService {
       });
 
       // Create system message with board context
-      // Build a compact object list for the AI to reference (for deletion, analysis, etc.)
       const objectSummary = boardObjects.map(o => {
         const a = o as any;
         const parts = [`id:${o.id}`, `type:${o.type}`];
@@ -443,15 +409,15 @@ RESPONSE RULES:
 - To edit MANY objects at once (e.g. "change all stickies to blue"), use bulk_update_objects with an array of updates. This is much faster and more reliable than calling update_object many times.
 - To organize/arrange/tidy the WHOLE board, use organize_board — this is much faster and more reliable than calling move_object many times. Always prefer organize_board for bulk rearrangement.`;
 
-      // Call OpenAI with function calling
+      // Call Anthropic with tool use
       const generation = this.trace.generation({
-        name: 'openai-completion',
-        model: 'gpt-4o',
+        name: 'anthropic-completion',
+        model: 'claude-sonnet-4-6',
         input: { command },
       });
 
       // Build messages with conversation history (capped at last 20 for token safety)
-      const priorMessages: OpenAI.ChatCompletionMessageParam[] = history
+      const priorMessages: Anthropic.MessageParam[] = history
         .slice(-20)
         .map(m => ({
           role: m.role as 'user' | 'assistant',
@@ -461,106 +427,105 @@ RESPONSE RULES:
       // --- Tool-call loop: allows the model to call multiple tools across iterations ---
       const MAX_TOOL_ITERATIONS = 10;
       const actions: any[] = [];
-      const conversationMessages: OpenAI.ChatCompletionMessageParam[] = [
-        { role: 'system', content: systemMessage },
+      const conversationMessages: Anthropic.MessageParam[] = [
         ...priorMessages,
         { role: 'user', content: command },
       ];
 
-      let response: OpenAI.ChatCompletionMessage | null = null;
+      let finalText = '';
 
       for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-        const completion = await openai.chat.completions.create({
-          model: 'gpt-4o',
+        const response = await anthropic.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 4096,
+          system: systemMessage,
           messages: conversationMessages,
           tools,
-          tool_choice: 'auto',
+          tool_choice: { type: 'auto' },
           temperature: 0.7,
         });
 
         if (iteration === 0) {
           generation.end({
-            output: completion.choices[0].message,
+            output: response.content,
             usage: {
-              promptTokens: completion.usage?.prompt_tokens,
-              completionTokens: completion.usage?.completion_tokens,
+              promptTokens: response.usage.input_tokens,
+              completionTokens: response.usage.output_tokens,
             },
           });
         }
 
-        response = completion.choices[0].message;
-        const toolCalls = response.tool_calls || [];
+        // Extract text and tool use blocks
+        const textBlocks = response.content.filter((b): b is Anthropic.TextBlock => b.type === 'text');
+        const toolUseBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
 
-        // No tool calls — model is done, has a final text response
-        if (toolCalls.length === 0) break;
-
-        // Collect actions and build tool result messages
-        conversationMessages.push(response as any);
-
-        for (const toolCall of toolCalls) {
-          if ('function' in toolCall) {
-            let args: any;
-            try {
-              args = JSON.parse(toolCall.function.arguments);
-            } catch (e) {
-              console.error(`Failed to parse tool arguments for ${toolCall.function.name}:`, e);
-              conversationMessages.push({
-                role: 'tool' as const,
-                tool_call_id: toolCall.id,
-                content: `Error: malformed arguments — skipped.`,
-              });
-              continue;
-            }
-
-            actions.push({
-              tool: toolCall.function.name,
-              arguments: args,
-            });
-
-            // Build a tool result so the model knows what happened
-            let toolResult = `Done: ${toolCall.function.name}`;
-            if (toolCall.function.name === 'analyze_board') {
-              toolResult = `Board has ${boardObjects.length} objects.\n${objectSummary || '(empty)'}`;
-            } else if (toolCall.function.name === 'organize_board') {
-              toolResult = `Organized ${boardObjects.length} objects using "${args.strategy}" strategy.`;
-            } else if (toolCall.function.name === 'clear_board') {
-              toolResult = `Cleared all ${boardObjects.length} objects from the board.`;
-            } else if (toolCall.function.name === 'delete_object') {
-              toolResult = `Deleted object ${args.id}.`;
-            } else if (toolCall.function.name.startsWith('create_')) {
-              toolResult = `Created ${toolCall.function.name.replace('create_', '')} at (${args.x ?? 0}, ${args.y ?? 0}).`;
-            } else if (toolCall.function.name === 'move_object') {
-              toolResult = `Moved object ${args.id} to (${args.x}, ${args.y}).`;
-            } else if (toolCall.function.name === 'update_object') {
-              toolResult = `Updated object ${args.id}.`;
-            } else if (toolCall.function.name === 'bulk_update_objects') {
-              const filterCount = args.filter ? boardObjects.filter((o: any) => o.type === args.filter.type).length : 0;
-              const idCount = args.updates?.length ?? 0;
-              toolResult = args.filter
-                ? `Applied changes to all ${filterCount} ${args.filter.type} objects${idCount ? `, plus ${idCount} individual updates` : ''}.`
-                : `Updated ${idCount} objects.`;
-            }
-
-            conversationMessages.push({
-              role: 'tool' as const,
-              tool_call_id: toolCall.id,
-              content: toolResult,
-            });
-          }
+        // Accumulate text
+        for (const block of textBlocks) {
+          if (block.text) finalText += (finalText ? ' ' : '') + block.text;
         }
+
+        // No tool calls — model is done
+        if (toolUseBlocks.length === 0) break;
+
+        // Add assistant message to conversation
+        conversationMessages.push({ role: 'assistant', content: response.content });
+
+        // Process tool calls and build results
+        const toolResults: Anthropic.ToolResultBlockParam[] = [];
+
+        for (const toolUse of toolUseBlocks) {
+          const args = toolUse.input as any;
+
+          actions.push({
+            tool: toolUse.name,
+            arguments: args,
+          });
+
+          // Build a tool result so the model knows what happened
+          let toolResult = `Done: ${toolUse.name}`;
+          if (toolUse.name === 'analyze_board') {
+            toolResult = `Board has ${boardObjects.length} objects.\n${objectSummary || '(empty)'}`;
+          } else if (toolUse.name === 'organize_board') {
+            toolResult = `Organized ${boardObjects.length} objects using "${args.strategy}" strategy.`;
+          } else if (toolUse.name === 'clear_board') {
+            toolResult = `Cleared all ${boardObjects.length} objects from the board.`;
+          } else if (toolUse.name === 'delete_object') {
+            toolResult = `Deleted object ${args.id}.`;
+          } else if (toolUse.name.startsWith('create_')) {
+            toolResult = `Created ${toolUse.name.replace('create_', '')} at (${args.x ?? 0}, ${args.y ?? 0}).`;
+          } else if (toolUse.name === 'move_object') {
+            toolResult = `Moved object ${args.id} to (${args.x}, ${args.y}).`;
+          } else if (toolUse.name === 'update_object') {
+            toolResult = `Updated object ${args.id}.`;
+          } else if (toolUse.name === 'bulk_update_objects') {
+            const filterCount = args.filter ? boardObjects.filter((o: any) => o.type === args.filter.type).length : 0;
+            const idCount = args.updates?.length ?? 0;
+            toolResult = args.filter
+              ? `Applied changes to all ${filterCount} ${args.filter.type} objects${idCount ? `, plus ${idCount} individual updates` : ''}.`
+              : `Updated ${idCount} objects.`;
+          }
+
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: toolResult,
+          });
+        }
+
+        conversationMessages.push({ role: 'user', content: toolResults });
         // Loop continues — model gets tool results and can respond with text or more tool calls
       }
 
       // Update trace with success
       this.trace.update({
-        output: { message: response?.content, actionCount: actions.length },
+        output: { message: finalText, actionCount: actions.length },
         level: 'DEFAULT',
       });
 
       await langfuse.flush();
 
       // Generate a fallback message if the model didn't provide text
-      let message = response?.content || '';
+      let message = finalText;
       if (!message && actions.length > 0) {
         const counts: Record<string, number> = {};
         for (const a of actions) {
@@ -602,16 +567,17 @@ RESPONSE RULES:
 
   async testConnection(): Promise<boolean> {
     try {
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: [{ role: 'user', content: 'Say "connected"' }],
+      const response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
         max_tokens: 10,
+        messages: [{ role: 'user', content: 'Say "connected"' }],
       });
 
-      console.log('OpenAI connection test successful:', completion.choices[0].message.content);
+      const text = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')?.text;
+      console.log('Anthropic connection test successful:', text);
       return true;
     } catch (error) {
-      console.error('OpenAI connection test failed:', error);
+      console.error('Anthropic connection test failed:', error);
       return false;
     }
   }

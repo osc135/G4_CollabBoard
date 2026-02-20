@@ -12,8 +12,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/socket.io": { 
-        target: "http://localhost:3001", 
+      "/socket.io": {
+        target: "http://localhost:3001",
         ws: true,
         changeOrigin: true,
         configure: (proxy, options) => {
@@ -24,6 +24,14 @@ export default defineConfig({
             console.log('Sending Request to the Target:', req.method, req.url);
           });
         }
+      },
+      "/api": {
+        target: "http://localhost:3001",
+        changeOrigin: true,
+      },
+      "/share": {
+        target: "http://localhost:3001",
+        changeOrigin: true,
       },
     },
   },

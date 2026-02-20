@@ -4,7 +4,7 @@ import { LoginScreen } from "./LoginScreen";
 import { Dashboard } from "./Dashboard";
 import { BoardRoom } from "./BoardRoom";
 
-export default function App() {
+function AuthGatedRoutes() {
   const { session, loading } = useAuth();
 
   if (loading) {
@@ -20,11 +20,21 @@ export default function App() {
   }
 
   return (
+    <Routes>
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/board/:roomId" element={<BoardRoom />} />
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
+  );
+}
+
+export default function App() {
+  return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/board/:roomId" element={<BoardRoom />} />
+        <Route path="/view/:roomId" element={<BoardRoom readOnly />} />
+        <Route path="*" element={<AuthGatedRoutes />} />
       </Routes>
     </BrowserRouter>
   );

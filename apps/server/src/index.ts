@@ -3,6 +3,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import {
   getBoardState,
@@ -19,18 +20,16 @@ import rateLimit from "express-rate-limit";
 import { AIService } from "./ai-service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const snapshotsDir = path.join(__dirname, "data", "snapshots");
+
+// Ensure snapshots directory exists
+if (!fs.existsSync(snapshotsDir)) {
+  fs.mkdirSync(snapshotsDir, { recursive: true });
+}
+
 const app = express();
 app.use(cors());
-app.use(express.json());
-
-// Serve static files from React build in production
-if (process.env.NODE_ENV === "production") {
-  const clientBuildPath = path.join(__dirname, "../../web/dist");
-  app.use(express.static(clientBuildPath));
-  app.get("*", (req, res) => {
-    res.sendFile(path.join(clientBuildPath, "index.html"));
-  });
-}
+app.use(express.json({ limit: "5mb" }));
 
 // API endpoint for room previews
 app.get("/api/room/:roomId/preview", async (req, res) => {
@@ -50,6 +49,64 @@ app.get("/api/room/:roomId/preview", async (req, res) => {
     console.error("Preview error:", error);
     res.json({ objects: [] }); // Return empty instead of error
   }
+});
+
+// Snapshot upload endpoint
+app.post("/api/room/:roomId/snapshot", (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { image } = req.body;
+    if (!image || typeof image !== "string") {
+      return res.status(400).json({ error: "Missing image data" });
+    }
+    // Strip data URL prefix
+    const base64Data = image.replace(/^data:image\/png;base64,/, "");
+    const filePath = path.join(snapshotsDir, `${roomId}.png`);
+    fs.writeFileSync(filePath, Buffer.from(base64Data, "base64"));
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Snapshot upload error:", error);
+    res.status(500).json({ error: "Failed to save snapshot" });
+  }
+});
+
+// Snapshot serve endpoint
+app.get("/api/room/:roomId/snapshot.png", (req, res) => {
+  const filePath = path.join(snapshotsDir, `${req.params.roomId}.png`);
+  if (fs.existsSync(filePath)) {
+    res.setHeader("Content-Type", "image/png");
+    res.sendFile(filePath);
+  } else {
+    res.status(404).json({ error: "No snapshot found" });
+  }
+});
+
+// OG share route — serves meta tags then redirects to the read-only viewer
+app.get("/share/:roomId", (req, res) => {
+  const { roomId } = req.params;
+  const snapshotUrl = `/api/room/${roomId}/snapshot.png`;
+  const viewUrl = `/view/${roomId}`;
+
+  res.setHeader("Content-Type", "text/html");
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>CollabBoard - Check out this whiteboard!</title>
+  <meta property="og:title" content="CollabBoard - Check out this whiteboard!" />
+  <meta property="og:description" content="View this collaborative whiteboard on CollabBoard" />
+  <meta property="og:image" content="${snapshotUrl}" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="CollabBoard - Check out this whiteboard!" />
+  <meta name="twitter:description" content="View this collaborative whiteboard on CollabBoard" />
+  <meta name="twitter:image" content="${snapshotUrl}" />
+  <meta http-equiv="refresh" content="0;url=${viewUrl}" />
+</head>
+<body>
+  <p>Redirecting to <a href="${viewUrl}">CollabBoard viewer</a>...</p>
+</body>
+</html>`);
 });
 
 // Rate limiter for AI commands: 10 requests per minute per IP
@@ -92,6 +149,16 @@ app.post("/api/ai/command", aiRateLimiter, async (req, res) => {
     });
   }
 });
+
+// Serve static files from React build in production
+// IMPORTANT: This catch-all must come AFTER all API and share routes
+if (process.env.NODE_ENV === "production") {
+  const clientBuildPath = path.join(__dirname, "../../web/dist");
+  app.use(express.static(clientBuildPath));
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(clientBuildPath, "index.html"));
+  });
+}
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, { cors: { origin: "*" } });
@@ -217,7 +284,7 @@ io.on("connection", (socket) => {
         const updatedState = getBoardState(roomId);
         io.in(roomId).emit("board:state", { objects: updatedState.objects });
       }
-      
+
       // Send response back to the requesting client
       socket.emit("ai:response", response);
     } catch (error) {
@@ -243,12 +310,12 @@ async function start() {
   // Load default room for backward compatibility
   const defaultState = await loadFromDisk("default");
   loadBoardState("default", defaultState);
-  
+
   let savePromise = Promise.resolve();
   setPersist((boardId, s) => {
     savePromise = savePromise.then(() => saveToDisk(boardId, s)).catch((err) => console.error("Save failed:", err));
   });
-  
+
   httpServer.listen(PORT, () => console.log(`Server at http://localhost:${PORT}`));
 }
 start();
