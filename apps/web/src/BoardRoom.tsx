@@ -33,6 +33,8 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedStickyColor, setSelectedStickyColor] = useState<string>(STICKY_COLORS[0]);
   const [selectedShapeColor, setSelectedShapeColor] = useState<string>("#3b82f6");
+  const [penType, setPenType] = useState<"pen" | "marker" | "highlighter">("pen");
+  const [penStrokeWidth, setPenStrokeWidth] = useState<number>(3);
   const [backgroundPattern, setBackgroundPattern] = useState<BackgroundPattern>("dots");
   const [bgColor, setBgColor] = useState("#f8fafc");
   const [showBgPicker, setShowBgPicker] = useState(false);
@@ -166,6 +168,8 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
         selectedShapeColor={selectedShapeColor}
         backgroundPattern={backgroundPattern}
         bgColor={bgColor}
+        penType={penType}
+        penStrokeWidth={penStrokeWidth}
       />
 
       {readOnly ? (
@@ -312,7 +316,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
         <div style={{ width: 1, height: 24, background: "rgba(0,0,0,0.1)" }} />
 
         <div style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6 }}>
-          {(["pan", "sticky", "rectangle", "circle", "line"] as const).map((t, index) => [
+          {(["pan", "sticky", "rectangle", "circle", "line", "drawing"] as const).map((t, index) => [
               <button
                 key={t}
                 data-testid={`tool-${t}`}
@@ -326,7 +330,9 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                         ? "Click to add circle"
                         : t === "line"
                           ? "Click to add line"
-                          : "Click to add sticky note"
+                          : t === "drawing"
+                            ? "Click and drag to draw"
+                            : "Click to add sticky note"
                 }
                 style={{
                   padding: "6px 12px",
@@ -352,11 +358,11 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                 }}
               >
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 16 }}>{t === "pan" ? "✋" : t === "sticky" ? "📝" : t === "rectangle" ? "◻" : t === "circle" ? "⭕" : "⁄"}</span>
-                  <span>{t.charAt(0).toUpperCase() + t.slice(1)}</span>
+                  <span style={{ fontSize: 16 }}>{t === "pan" ? "✋" : t === "sticky" ? "📝" : t === "rectangle" ? "◻" : t === "circle" ? "⭕" : t === "drawing" ? "✏️" : "⁄"}</span>
+                  <span>{t === "drawing" ? "Draw" : t.charAt(0).toUpperCase() + t.slice(1)}</span>
                 </span>
               </button>,
-              index < 4 && <div key={`sep-${index}`} style={{ width: 1, height: 20, background: "rgba(0,0,0,0.06)" }} />
+              index < 5 && <div key={`sep-${index}`} style={{ width: 1, height: 20, background: "rgba(0,0,0,0.06)" }} />
           ].filter(Boolean))}
         </div>
 
@@ -575,7 +581,65 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
           </div>
         )}
 
-        {(tool === "rectangle" || tool === "circle" || tool === "line") && (
+        {tool === "drawing" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6 }}>
+            <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>TYPE</span>
+            {([
+              { value: "pen" as const, label: "Pen", icon: "✏️" },
+              { value: "marker" as const, label: "Marker", icon: "🖊️" },
+              { value: "highlighter" as const, label: "Highlighter", icon: "🖍️" },
+            ]).map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setPenType(opt.value)}
+                style={{
+                  padding: "4px 8px",
+                  background: penType === opt.value ? "linear-gradient(135deg, #3b82f6, #2563eb)" : "white",
+                  color: penType === opt.value ? "white" : "#4b5563",
+                  border: penType === opt.value ? "none" : "1px solid rgba(0,0,0,0.08)",
+                  borderRadius: 5,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: penType === opt.value ? 600 : 500,
+                  transition: "all 0.15s",
+                }}
+              >
+                {opt.icon} {opt.label}
+              </button>
+            ))}
+            <div style={{ width: 1, height: 20, background: "rgba(0,0,0,0.1)" }} />
+            <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>WIDTH</span>
+            {[2, 4, 8, 16].map((w) => (
+              <button
+                key={w}
+                onClick={() => setPenStrokeWidth(w)}
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 6,
+                  background: penStrokeWidth === w ? "#3b82f6" : "white",
+                  border: penStrokeWidth === w ? "none" : "1px solid rgba(0,0,0,0.08)",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: 0,
+                  transition: "all 0.15s",
+                }}
+                title={`${w}px`}
+              >
+                <div style={{
+                  width: Math.min(w * 1.5, 18),
+                  height: Math.min(w * 1.5, 18),
+                  borderRadius: "50%",
+                  background: penStrokeWidth === w ? "white" : "#4b5563",
+                }} />
+              </button>
+            ))}
+          </div>
+        )}
+
+        {(tool === "rectangle" || tool === "circle" || tool === "line" || tool === "drawing") && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6 }}>
             <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>COLOR</span>
             {["#3b82f6", "#ef4444", "#22c55e", "#f59e0b", "#8b5cf6", "#ec4899"].map((color) => (
