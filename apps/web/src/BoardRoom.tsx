@@ -5,9 +5,19 @@ import { Board, type Tool, type BackgroundPattern, STICKY_COLORS, getRandomStick
 import { useSupabaseBoard } from "./useSupabaseBoard";
 import { useAuth } from "./contexts/AuthContext";
 import { extractRoomCode } from "./utils/roomCode";
-import { AIChat } from "./components/AIChat";
+import { AIChatContent } from "./components/AIChat";
 import { ShareModal } from "./components/ShareModal";
 import Konva from "konva";
+
+function formatTimeAgo(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
 
 interface BoardRoomProps {
   readOnly?: boolean;
@@ -39,12 +49,27 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
   const [bgColor, setBgColor] = useState("#f8fafc");
   const [showBgPicker, setShowBgPicker] = useState(false);
   const bgPickerRef = useRef<HTMLDivElement>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'chat' | 'ai'>('chat');
+  const [unreadCount, setUnreadCount] = useState(0);
+  const chatOpenRef = useRef(false);
+  const chatMessagesEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
+  const [chatInput, setChatInput] = useState("");
+  const seenStorageKey = roomId ? `chat-seen-${roomId}` : null;
+  const [initSeenCount] = useState(() => {
+    if (!seenStorageKey) return 0;
+    try {
+      return parseInt(localStorage.getItem(seenStorageKey) || '0', 10);
+    } catch { return 0; }
+  });
+  const lastSeenCountRef = useRef(initSeenCount);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [inviteCode, setInviteCode] = useState<string>("");
   const stageRef = useRef<Konva.Stage | null>(null);
 
-  const { connected, objects, cursors, presence, isOwner, isLocked, toggleLock, remoteSelections, remoteEditingMap, remoteDraggingIds, remoteDrawingPaths, emitCursor, emitSelection, emitTextEdit, emitStickyLock, emitStickyUnlock, emitObjectDrag, emitObjectDragEnd, emitObjectTransform, emitObjectTransformEnd, emitDrawingPath, emitDrawingEnd, createObject, updateObject, deleteObject } = useSupabaseBoard(
+  const { connected, objects, cursors, presence, isOwner, isLocked, toggleLock, remoteSelections, remoteEditingMap, remoteDraggingIds, remoteDrawingPaths, chatMessages, emitChatMessage, emitCursor, emitSelection, emitTextEdit, emitStickyLock, emitStickyUnlock, emitObjectDrag, emitObjectDragEnd, emitObjectTransform, emitObjectTransformEnd, emitDrawingPath, emitDrawingEnd, createObject, updateObject, deleteObject } = useSupabaseBoard(
     userId,
     displayName,
     roomId
@@ -96,6 +121,57 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
     const code = extractRoomCode(roomId);
     setInviteCode(code);
   }, [roomId]);
+
+  // Clear seen count from localStorage when leaving the room (SPA navigation)
+  useEffect(() => {
+    return () => {
+      if (seenStorageKey) {
+        localStorage.removeItem(seenStorageKey);
+      }
+    };
+  }, [seenStorageKey]);
+
+  // Keep chatOpenRef in sync and mark messages as seen when chat tab is visible
+  const chatTabVisible = panelOpen && activeTab === 'chat';
+  useEffect(() => {
+    chatOpenRef.current = chatTabVisible;
+    if (chatTabVisible) {
+      setUnreadCount(0);
+      lastSeenCountRef.current = chatMessages.length;
+      if (seenStorageKey) {
+        try { localStorage.setItem(seenStorageKey, String(chatMessages.length)); } catch {}
+      }
+    }
+  }, [chatTabVisible, chatMessages.length, seenStorageKey]);
+
+  // Auto-focus chat input when chat tab is visible
+  useEffect(() => {
+    if (chatTabVisible) {
+      setTimeout(() => chatInputRef.current?.focus(), 0);
+    }
+  }, [chatTabVisible]);
+
+  // Track unread messages when panel is closed
+  useEffect(() => {
+    if (!chatOpenRef.current && chatMessages.length > lastSeenCountRef.current) {
+      setUnreadCount(chatMessages.length - lastSeenCountRef.current);
+    }
+  }, [chatMessages]);
+
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    if (chatTabVisible) {
+      chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages, chatTabVisible]);
+
+  // Auto-open panel on AI tab when ?ai= param is present
+  useEffect(() => {
+    if (aiPrompt && connected) {
+      setPanelOpen(true);
+      setActiveTab('ai');
+    }
+  }, [aiPrompt, connected]);
 
   useEffect(() => {
     if (effectiveReadOnly) return;
@@ -978,18 +1054,333 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
         />
       )}
 
-      {!effectiveReadOnly && (
-        <AIChat
-          callbacks={{ createObject, updateObject, deleteObject }}
-          stageRef={stageRef}
-          objects={objects}
-          initialPrompt={aiPrompt || undefined}
-          boardConnected={connected}
-          onInitialPromptConsumed={() => {
-            searchParams.delete('ai');
-            setSearchParams(searchParams, { replace: true });
-          }}
-        />
+      {/* Unified Chat FAB */}
+      <button
+        onClick={() => setPanelOpen(prev => !prev)}
+        style={{
+          position: 'fixed',
+          bottom: 24,
+          right: 24,
+          width: 48,
+          height: 48,
+          borderRadius: '50%',
+          background: panelOpen ? '#1d4ed8' : '#2563eb',
+          color: 'white',
+          border: 'none',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          zIndex: 50,
+          fontSize: 22,
+          transition: 'transform 0.2s, background-color 0.2s',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.1)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+        aria-label="Open Chat"
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+          <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+        {unreadCount > 0 && (!panelOpen || activeTab !== 'chat') && (
+          <span style={{
+            position: 'absolute',
+            top: -4,
+            right: -4,
+            background: '#ef4444',
+            color: 'white',
+            fontSize: 11,
+            fontWeight: 700,
+            borderRadius: '50%',
+            width: 20,
+            height: 20,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+          }}>
+            {unreadCount > 9 ? '9+' : unreadCount}
+          </span>
+        )}
+      </button>
+
+      {/* Unified Tabbed Panel */}
+      {panelOpen && (
+        <div data-chat-panel style={{
+          position: 'fixed',
+          bottom: 88,
+          right: 24,
+          width: 384,
+          maxHeight: 500,
+          backgroundColor: 'white',
+          borderRadius: 12,
+          boxShadow: '0 16px 48px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08)',
+          zIndex: 50,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}>
+          {/* Header — tab bar + close */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            borderBottom: '1px solid #e5e7eb',
+          }}>
+            {/* Tabs */}
+            <div style={{ display: 'flex', flex: 1 }}>
+              <button
+                onClick={() => setActiveTab('chat')}
+                style={{
+                  flex: 1,
+                  padding: '12px 16px',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: activeTab === 'chat' ? '2px solid #2563eb' : '2px solid transparent',
+                  color: activeTab === 'chat' ? '#2563eb' : '#6b7280',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  transition: 'color 0.15s',
+                }}
+              >
+                Chat
+                {unreadCount > 0 && activeTab !== 'chat' && (
+                  <span style={{
+                    background: '#ef4444',
+                    color: 'white',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    borderRadius: 10,
+                    padding: '1px 6px',
+                    minWidth: 18,
+                    textAlign: 'center',
+                  }}>
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+              {!effectiveReadOnly && (
+                <button
+                  onClick={() => setActiveTab('ai')}
+                  style={{
+                    flex: 1,
+                    padding: '12px 16px',
+                    background: 'none',
+                    border: 'none',
+                    borderBottom: activeTab === 'ai' ? '2px solid #2563eb' : '2px solid transparent',
+                    color: activeTab === 'ai' ? '#2563eb' : '#6b7280',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'color 0.15s',
+                  }}
+                >
+                  AI
+                </button>
+              )}
+            </div>
+            {/* Close button */}
+            <button
+              onClick={() => setPanelOpen(false)}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: 18,
+                color: '#6b7280',
+                padding: '2px 12px',
+                borderRadius: 4,
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#f3f4f6'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Body — Chat tab */}
+          {activeTab === 'chat' && (
+            <>
+              {/* Messages */}
+              <div style={{
+                flex: 1,
+                overflowY: 'auto',
+                padding: '12px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+              }}>
+                {chatMessages.length === 0 && (
+                  <div style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#9ca3af',
+                    fontSize: 13,
+                  }}>
+                    No messages yet. Say hi!
+                  </div>
+                )}
+                {chatMessages.map((msg, i) => {
+                  const isOwn = msg.senderId === userId;
+                  const showSender = !isOwn && (i === 0 || chatMessages[i - 1].senderId !== msg.senderId);
+                  const CURSOR_COLORS = ["#ef4444", "#22c55e", "#3b82f6", "#a855f7", "#f59e0b"];
+                  const senderColorIndex = Math.abs(msg.senderName.split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % CURSOR_COLORS.length;
+                  const senderColor = CURSOR_COLORS[senderColorIndex];
+                  const timeAgo = formatTimeAgo(msg.timestamp);
+
+                  return (
+                    <div key={msg.id} style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: isOwn ? 'flex-end' : 'flex-start',
+                      marginTop: showSender ? 8 : 0,
+                    }}>
+                      {showSender && (
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: senderColor,
+                          marginBottom: 2,
+                          marginLeft: isOwn ? 0 : 4,
+                          marginRight: isOwn ? 4 : 0,
+                        }}>
+                          {msg.senderName}
+                        </span>
+                      )}
+                      <div style={{
+                        maxWidth: '80%',
+                        padding: '8px 12px',
+                        borderRadius: isOwn ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
+                        background: isOwn ? '#2563eb' : '#f1f5f9',
+                        color: isOwn ? 'white' : '#1e293b',
+                        fontSize: 13,
+                        lineHeight: 1.4,
+                        wordBreak: 'break-word',
+                      }}>
+                        {msg.text}
+                      </div>
+                      {(i === chatMessages.length - 1 || chatMessages[i + 1].senderId !== msg.senderId) && (
+                        <span style={{
+                          fontSize: 10,
+                          color: '#9ca3af',
+                          marginTop: 2,
+                          marginLeft: isOwn ? 0 : 4,
+                          marginRight: isOwn ? 4 : 0,
+                        }}>
+                          {timeAgo}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+                <div ref={chatMessagesEndRef} />
+              </div>
+
+              {/* Input */}
+              <div style={{
+                borderTop: '1px solid #e5e7eb',
+                padding: '10px 12px',
+                display: 'flex',
+                alignItems: 'flex-end',
+                gap: 8,
+              }}>
+                <textarea
+                  ref={chatInputRef}
+                  value={chatInput}
+                  onChange={(e) => {
+                    setChatInput(e.target.value);
+                    e.target.style.height = 'auto';
+                    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey && chatInput.trim()) {
+                      e.preventDefault();
+                      emitChatMessage(chatInput.trim());
+                      setChatInput('');
+                      if (chatInputRef.current) {
+                        chatInputRef.current.style.height = 'auto';
+                      }
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const panel = e.currentTarget.closest('[data-chat-panel]');
+                    if (panel) {
+                      setTimeout(() => {
+                        if (panel.contains(document.activeElement) || document.activeElement === document.body) {
+                          chatInputRef.current?.focus();
+                        }
+                      }, 0);
+                    }
+                  }}
+                  placeholder="Type a message..."
+                  rows={1}
+                  style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    outline: 'none',
+                    resize: 'none',
+                    lineHeight: 1.4,
+                    maxHeight: 120,
+                    overflowY: 'auto',
+                    fontFamily: 'inherit',
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    if (chatInput.trim()) {
+                      emitChatMessage(chatInput.trim());
+                      setChatInput('');
+                      if (chatInputRef.current) {
+                        chatInputRef.current.style.height = 'auto';
+                        chatInputRef.current.focus();
+                      }
+                    }
+                  }}
+                  style={{
+                    padding: '8px 14px',
+                    background: chatInput.trim() ? '#2563eb' : '#e5e7eb',
+                    color: chatInput.trim() ? 'white' : '#9ca3af',
+                    border: 'none',
+                    borderRadius: 8,
+                    cursor: chatInput.trim() ? 'pointer' : 'default',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    transition: 'background 0.15s',
+                    flexShrink: 0,
+                  }}
+                >
+                  Send
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Body — AI tab */}
+          {activeTab === 'ai' && !effectiveReadOnly && (
+            <AIChatContent
+              callbacks={{ createObject, updateObject, deleteObject }}
+              stageRef={stageRef}
+              objects={objects}
+              initialPrompt={aiPrompt || undefined}
+              boardConnected={connected}
+              onInitialPromptConsumed={() => {
+                searchParams.delete('ai');
+                setSearchParams(searchParams, { replace: true });
+              }}
+              isVisible={panelOpen && activeTab === 'ai'}
+            />
+          )}
+        </div>
       )}
     </div>
   );

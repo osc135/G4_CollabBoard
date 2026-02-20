@@ -32,8 +32,7 @@ interface AIChatProps {
   onInitialPromptConsumed?: () => void;
 }
 
-export function AIChat({ callbacks, stageRef, objects = [], initialPrompt, boardConnected, onInitialPromptConsumed }: AIChatProps) {
-  const [isOpen, setIsOpen] = useState(false);
+export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt, boardConnected, onInitialPromptConsumed, isVisible }: AIChatProps & { isVisible: boolean }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -45,8 +44,8 @@ export function AIChat({ callbacks, stageRef, objects = [], initialPrompt, board
   };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    if (isVisible) scrollToBottom();
+  }, [messages, isVisible]);
   
   const getViewport = (): { centerX: number; centerY: number; scale: number } => {
     if (stageRef?.current) {
@@ -356,12 +355,11 @@ export function AIChat({ callbacks, stageRef, objects = [], initialPrompt, board
   // Auto-trigger initial prompt (from "Build with AI" on dashboard)
   // Waits until the board connection is established so createObject works
   useEffect(() => {
-    if (!initialPrompt || !boardConnected || initialPromptFired.current) return;
+    if (!initialPrompt || !boardConnected || !isVisible || initialPromptFired.current) return;
     initialPromptFired.current = true;
 
     // Small delay after connection to ensure everything is stable
     const timer = setTimeout(async () => {
-      setIsOpen(true);
 
       const userMessage: Message = {
         id: Date.now().toString(),
@@ -386,7 +384,7 @@ export function AIChat({ callbacks, stageRef, objects = [], initialPrompt, board
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [initialPrompt, boardConnected]);
+  }, [initialPrompt, boardConnected, isVisible]);
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -397,252 +395,117 @@ export function AIChat({ callbacks, stageRef, objects = [], initialPrompt, board
 
   return (
     <>
-      {/* Chat Button */}
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        style={{
-          position: 'fixed',
-          bottom: '24px',
-          right: '24px',
-          width: '56px',
-          height: '56px',
-          backgroundColor: '#2563eb',
-          color: 'white',
-          borderRadius: '50%',
-          border: 'none',
-          boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          zIndex: 50,
-          transition: 'transform 0.2s, background-color 0.2s'
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.transform = 'scale(1.1)';
-          e.currentTarget.style.backgroundColor = '#1d4ed8';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.transform = 'scale(1)';
-          e.currentTarget.style.backgroundColor = '#2563eb';
-        }}
-        aria-label="Open AI Assistant"
-      >
-        {/* Chat Bubble Icon */}
-        <svg
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            d="M12 2C6.48 2 2 6.48 2 12C2 13.86 2.5 15.6 3.35 17.07L2 22L6.93 20.65C8.4 21.5 10.14 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2Z"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <circle cx="8" cy="12" r="1" fill="currentColor" />
-          <circle cx="12" cy="12" r="1" fill="currentColor" />
-          <circle cx="16" cy="12" r="1" fill="currentColor" />
-        </svg>
-      </button>
-
-      {/* Chat Box Modal */}
-      {isOpen && (
-        <>
-          {/* Backdrop */}
-          <div
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: 'rgba(0,0,0,0.2)',
-              zIndex: 40
-            }}
-            onClick={() => setIsOpen(false)}
-          />
-          
-          {/* Chat Window */}
+      {/* AI Messages */}
+      <div style={{
+        flex: 1,
+        padding: '16px',
+        overflowY: 'auto',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '12px'
+      }}>
+        {messages.length === 0 ? (
           <div style={{
-            position: 'fixed',
-            bottom: '96px',
-            right: '24px',
-            width: '384px',
-            height: '500px',
-            backgroundColor: 'white',
-            borderRadius: '8px',
-            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
-            zIndex: 50,
             display: 'flex',
-            flexDirection: 'column'
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            textAlign: 'center',
+            color: '#6b7280'
           }}>
-            {/* Header */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '16px',
-              borderBottom: '1px solid #e5e7eb'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{
-                  width: '32px',
-                  height: '32px',
-                  backgroundColor: '#dbeafe',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}>
-                  <span style={{ fontSize: '14px' }}>🤖</span>
-                </div>
-                <h3 style={{ fontWeight: 600, margin: 0 }}>AI Assistant</h3>
-              </div>
-              <button
-                onClick={() => setIsOpen(false)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#6b7280',
-                  cursor: 'pointer',
-                  padding: '4px'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.color = '#374151'}
-                onMouseLeave={(e) => e.currentTarget.style.color = '#6b7280'}
-                aria-label="Close chat"
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 20 20"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M15 5L5 15M5 5L15 15"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-            </div>
-
-            {/* Chat Messages */}
-            <div style={{
-              flex: 1,
-              padding: '16px',
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '12px'
-            }}>
-              {messages.length === 0 ? (
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  height: '100%',
-                  textAlign: 'center',
-                  color: '#6b7280'
-                }}>
-                  <span style={{ fontSize: '24px', marginBottom: '8px' }}>✨</span>
-                  <p style={{ margin: 0, fontSize: '14px' }}>
-                    Ask me to create sticky notes, rectangles, circles, lines, organize your board, or analyze your content!
-                  </p>
-                  <p style={{ margin: '8px 0 0 0', fontSize: '12px' }}>
-                    Try: "Add a blue rectangle and a red circle"
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {messages.map((message) => (
-                    <div
-                      key={message.id}
-                      style={{
-                        display: 'flex',
-                        justifyContent: message.sender === 'user' ? 'flex-end' : 'flex-start'
-                      }}
-                    >
-                      <div style={{
-                        maxWidth: '70%',
-                        padding: '8px 12px',
-                        borderRadius: '8px',
-                        backgroundColor: message.sender === 'user' ? '#2563eb' : '#f3f4f6',
-                        color: message.sender === 'user' ? 'white' : '#374151',
-                        wordBreak: 'break-word'
-                      }}>
-                        {message.sender === 'ai' ? (
-                          <div style={{ margin: 0, fontSize: '14px', lineHeight: 1.5 }}>
-                            <ReactMarkdown components={{
-                              p: ({ children }) => <p style={{ margin: '4px 0' }}>{children}</p>,
-                              strong: ({ children }) => <strong style={{ fontWeight: 600 }}>{children}</strong>,
-                              ol: ({ children }) => <ol style={{ margin: '4px 0', paddingLeft: '20px' }}>{children}</ol>,
-                              ul: ({ children }) => <ul style={{ margin: '4px 0', paddingLeft: '20px' }}>{children}</ul>,
-                              li: ({ children }) => <li style={{ margin: '2px 0' }}>{children}</li>,
-                            }}>{message.text}</ReactMarkdown>
-                          </div>
-                        ) : (
-                          <p style={{ margin: 0, fontSize: '14px' }}>{message.text}</p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {/* Streaming text updates appear in the AI message bubble directly */}
-                  <div ref={messagesEndRef} />
-                </>
-              )}
-            </div>
-
-            {/* Footer with Input */}
-            <div style={{
-              padding: '16px',
-              borderTop: '1px solid #e5e7eb',
-              backgroundColor: '#f9fafb'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input
-                  type="text"
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  onKeyDown={handleKeyPress}
-                  placeholder="Ask AI to help with your board..."
-                  style={{
-                    flex: 1,
-                    padding: '8px 12px',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '8px',
-                    backgroundColor: 'white',
-                    color: '#374151',
-                    outline: 'none'
-                  }}
-                  disabled={isLoading}
-                />
-                <button
-                  onClick={sendMessage}
-                  style={{
-                    padding: '8px 16px',
-                    backgroundColor: isLoading || !inputText.trim() ? '#d1d5db' : '#2563eb',
-                    color: isLoading || !inputText.trim() ? '#6b7280' : 'white',
-                    borderRadius: '8px',
-                    border: 'none',
-                    cursor: isLoading || !inputText.trim() ? 'not-allowed' : 'pointer',
-                    transition: 'background-color 0.2s'
-                  }}
-                  disabled={isLoading || !inputText.trim()}
-                >
-                  {isLoading ? 'Sending...' : 'Send'}
-                </button>
-              </div>
-            </div>
+            <span style={{ fontSize: '24px', marginBottom: '8px' }}>✨</span>
+            <p style={{ margin: 0, fontSize: '14px' }}>
+              Ask me to create sticky notes, rectangles, circles, lines, organize your board, or analyze your content!
+            </p>
+            <p style={{ margin: '8px 0 0 0', fontSize: '12px' }}>
+              Try: "Add a blue rectangle and a red circle"
+            </p>
           </div>
-        </>
-      )}
+        ) : (
+          <>
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: message.sender === 'user' ? 'flex-end' : 'flex-start'
+                }}
+              >
+                <div style={{
+                  maxWidth: '70%',
+                  padding: '8px 12px',
+                  borderRadius: message.sender === 'user' ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
+                  backgroundColor: message.sender === 'user' ? '#2563eb' : '#f3f4f6',
+                  color: message.sender === 'user' ? 'white' : '#374151',
+                  wordBreak: 'break-word'
+                }}>
+                  {message.sender === 'ai' ? (
+                    <div style={{ margin: 0, fontSize: '14px', lineHeight: 1.5 }}>
+                      <ReactMarkdown components={{
+                        p: ({ children }) => <p style={{ margin: '4px 0' }}>{children}</p>,
+                        strong: ({ children }) => <strong style={{ fontWeight: 600 }}>{children}</strong>,
+                        ol: ({ children }) => <ol style={{ margin: '4px 0', paddingLeft: '20px' }}>{children}</ol>,
+                        ul: ({ children }) => <ul style={{ margin: '4px 0', paddingLeft: '20px' }}>{children}</ul>,
+                        li: ({ children }) => <li style={{ margin: '2px 0' }}>{children}</li>,
+                      }}>{message.text}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p style={{ margin: 0, fontSize: '14px' }}>{message.text}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+            <div ref={messagesEndRef} />
+          </>
+        )}
+      </div>
+
+      {/* AI Input */}
+      <div style={{
+        padding: '16px',
+        borderTop: '1px solid #e5e7eb',
+        backgroundColor: '#f9fafb'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input
+            type="text"
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={handleKeyPress}
+            placeholder="Ask AI to help with your board..."
+            style={{
+              flex: 1,
+              padding: '8px 12px',
+              border: '1px solid #e5e7eb',
+              borderRadius: '8px',
+              backgroundColor: 'white',
+              color: '#374151',
+              outline: 'none'
+            }}
+            disabled={isLoading}
+          />
+          <button
+            onClick={sendMessage}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: isLoading || !inputText.trim() ? '#d1d5db' : '#2563eb',
+              color: isLoading || !inputText.trim() ? '#6b7280' : 'white',
+              borderRadius: '8px',
+              border: 'none',
+              cursor: isLoading || !inputText.trim() ? 'not-allowed' : 'pointer',
+              transition: 'background-color 0.2s'
+            }}
+            disabled={isLoading || !inputText.trim()}
+          >
+            {isLoading ? 'Sending...' : 'Send'}
+          </button>
+        </div>
+      </div>
     </>
   );
+}
+
+export function AIChat(props: AIChatProps) {
+  return <AIChatContent {...props} isVisible={true} />;
 }
