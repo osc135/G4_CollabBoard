@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import type { BoardObject } from "@collabboard/shared";
 import { Board, type Tool, STICKY_COLORS, getRandomStickyColor } from "./Board";
 import { useSupabaseBoard } from "./useSupabaseBoard";
 import { useAuth } from "./contexts/AuthContext";
@@ -29,6 +30,26 @@ export function BoardRoom() {
   );
 
 
+  // Undo stack for local deletions only
+  const [deletedStack, setDeletedStack] = useState<BoardObject[]>([]);
+  const objectsRef = useRef(objects);
+  objectsRef.current = objects;
+
+  const deleteWithUndo = useCallback((id: string) => {
+    const obj = objectsRef.current.find(o => o.id === id);
+    if (obj) setDeletedStack(prev => [...prev, obj]);
+    deleteObject(id);
+  }, [deleteObject]);
+
+  const handleUndo = useCallback(() => {
+    setDeletedStack(prev => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1];
+      createObject(last);
+      return prev.slice(0, -1);
+    });
+  }, [createObject]);
+
   // Broadcast selection changes to other users
   useEffect(() => {
     emitSelection(selectedIds);
@@ -43,17 +64,26 @@ export function BoardRoom() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Delete" && e.key !== "Backspace") return;
       const active = document.activeElement;
-      if (active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" || (active as HTMLElement)?.isContentEditable) return;
+      const isInput = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" || (active as HTMLElement)?.isContentEditable;
+
+      // Ctrl/Cmd+Z to undo last deletion
+      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !isInput) {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      if (isInput) return;
       if (selectedIds.length === 0) return;
       e.preventDefault();
-      selectedIds.forEach((id) => deleteObject(id));
+      selectedIds.forEach((id) => deleteWithUndo(id));
       setSelectedIds([]);
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedIds, deleteObject]);
+  }, [selectedIds, deleteWithUndo, handleUndo]);
 
   if (loading) {
     return (
@@ -78,7 +108,7 @@ export function BoardRoom() {
         onSelect={setSelectedIds}
         onObjectCreate={createObject}
         onObjectUpdate={updateObject}
-        onObjectDelete={deleteObject}
+        onObjectDelete={deleteWithUndo}
         onCursorMove={emitCursor}
         onObjectDrag={emitObjectDrag}
         onObjectDragEnd={emitObjectDragEnd}
@@ -273,7 +303,7 @@ export function BoardRoom() {
         {selectedIds.length > 0 && (
           <button 
             data-testid="delete-btn" 
-            onClick={() => { selectedIds.forEach((id) => deleteObject(id)); setSelectedIds([]); }} 
+            onClick={() => { selectedIds.forEach((id) => deleteWithUndo(id)); setSelectedIds([]); }}
             style={{ 
               padding: "7px 14px", 
               background: "linear-gradient(135deg, #ef4444, #dc2626)", 
@@ -292,9 +322,32 @@ export function BoardRoom() {
             🗑 Delete ({selectedIds.length})
           </button>
         )}
-        
+
+        {deletedStack.length > 0 && (
+          <button
+            onClick={handleUndo}
+            style={{
+              padding: "7px 14px",
+              background: "linear-gradient(135deg, #6b7280, #4b5563)",
+              color: "white",
+              border: "none",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 500,
+              transition: "all 0.2s",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-1px)"}
+            onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}
+            title="Undo last delete (Ctrl+Z)"
+          >
+            Undo ({deletedStack.length})
+          </button>
+        )}
+
         <div style={{ width: 1, height: 24, background: "rgba(0,0,0,0.1)" }} />
-        
+
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <div style={{ 

@@ -895,8 +895,11 @@ export function Board({
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
-    objectId: string;
+    objectId?: string;
+    canvasX?: number;
+    canvasY?: number;
   } | null>(null);
+  const [clipboard, setClipboard] = useState<BoardObject | null>(null);
   const [connectorStyle, setConnectorStyle] = useState<"straight" | "curved" | "orthogonal">("curved");
   const [drawingLine, setDrawingLine] = useState<{
     id: string;
@@ -1559,10 +1562,15 @@ export function Board({
   );
 
   const handleStageContextMenu = useCallback((e: Konva.KonvaEventObject<PointerEvent>) => {
-    // Prevent default browser context menu when right-clicking on stage background
     e.evt.preventDefault();
-    // Close any existing context menu
-    setContextMenu(null);
+    const stage = e.target.getStage();
+    const pos = stage?.getRelativePointerPosition();
+    setContextMenu({
+      x: e.evt.clientX,
+      y: e.evt.clientY,
+      canvasX: pos?.x,
+      canvasY: pos?.y,
+    });
   }, []);
 
   const handleStageClick = useCallback(
@@ -2036,6 +2044,19 @@ export function Board({
     </Stage>
     {stickyEditor}
     {contextMenu && (
+      <>
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 999,
+        }}
+        onClick={() => setContextMenu(null)}
+        onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }}
+      />
       <div
         style={{
           position: "fixed",
@@ -2047,86 +2068,146 @@ export function Board({
           boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
           zIndex: 1000,
           padding: 4,
+          minWidth: 140,
         }}
-        onMouseLeave={() => setContextMenu(null)}
       >
-        <div style={{ padding: "4px 8px", fontSize: 12, color: "#666", borderBottom: "1px solid #eee" }}>
-          Connector Style
-        </div>
-        <div style={{ display: "flex", gap: 4, padding: 4 }}>
-          {(["straight", "curved", "orthogonal"] as const).map(style => (
+        {contextMenu.objectId ? (
+          <>
+            <div style={{ padding: "4px 8px", fontSize: 12, color: "#666", borderBottom: "1px solid #eee" }}>
+              Connector Style
+            </div>
+            <div style={{ display: "flex", gap: 4, padding: 4 }}>
+              {(["straight", "curved", "orthogonal"] as const).map(style => (
+                <button
+                  key={style}
+                  style={{
+                    flex: 1,
+                    padding: "4px 8px",
+                    background: connectorStyle === style ? "#3b82f6" : "#f3f4f6",
+                    color: connectorStyle === style ? "white" : "#333",
+                    border: "none",
+                    borderRadius: 2,
+                    cursor: "pointer",
+                    fontSize: 11,
+                    textTransform: "capitalize",
+                  }}
+                  onClick={() => setConnectorStyle(style)}
+                >
+                  {style}
+                </button>
+              ))}
+            </div>
             <button
-              key={style}
               style={{
-                flex: 1,
-                padding: "4px 8px",
-                background: connectorStyle === style ? "#3b82f6" : "#f3f4f6",
-                color: connectorStyle === style ? "white" : "#333",
+                display: "block",
+                width: "100%",
+                padding: "8px 12px",
+                background: "white",
                 border: "none",
-                borderRadius: 2,
                 cursor: "pointer",
-                fontSize: 11,
-                textTransform: "capitalize",
+                textAlign: "left",
+                fontSize: 14,
+                borderTop: "1px solid #eee",
               }}
-              onClick={() => setConnectorStyle(style)}
+              onMouseEnter={(e) => e.currentTarget.style.background = "#f3f4f6"}
+              onMouseLeave={(e) => e.currentTarget.style.background = "white"}
+              onClick={() => {
+                const obj = objectMap.get(contextMenu.objectId!);
+                if (obj) {
+                  setDrawingConnector({
+                    startObjectId: contextMenu.objectId!,
+                    startPoint: getAnchorPoint(obj, "center"),
+                    endPoint: { x: contextMenu.x, y: contextMenu.y }
+                  });
+                  setContextMenu(null);
+                }
+              }}
             >
-              {style}
+              Add Connector
             </button>
-          ))}
-        </div>
-        <button
-          style={{
-            display: "block",
-            width: "100%",
-            padding: "8px 12px",
-            background: "white",
-            border: "none",
-            cursor: "pointer",
-            textAlign: "left",
-            fontSize: 14,
-            borderTop: "1px solid #eee",
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.background = "#f3f4f6"}
-          onMouseLeave={(e) => e.currentTarget.style.background = "white"}
-          onClick={() => {
-            const obj = objectMap.get(contextMenu.objectId);
-            if (obj) {
-              // Start with center, will be updated to proper edge when target is selected
-              setDrawingConnector({
-                startObjectId: contextMenu.objectId,
-                startPoint: getAnchorPoint(obj, "center"),
-                endPoint: { x: contextMenu.x, y: contextMenu.y }
-              });
-              setContextMenu(null);
-            }
-          }}
-        >
-          Add Connector
-        </button>
-        <button
-          style={{
-            display: "block",
-            width: "100%",
-            padding: "8px 12px",
-            background: "white",
-            border: "none",
-            cursor: "pointer",
-            textAlign: "left",
-            fontSize: 14,
-            borderTop: "1px solid #eee",
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.background = "#f3f4f6"}
-          onMouseLeave={(e) => e.currentTarget.style.background = "white"}
-          onClick={() => {
-            if (onObjectDelete) {
-              onObjectDelete(contextMenu.objectId);
-            }
-            setContextMenu(null);
-          }}
-        >
-          Delete
-        </button>
+            <button
+              style={{
+                display: "block",
+                width: "100%",
+                padding: "8px 12px",
+                background: "white",
+                border: "none",
+                cursor: "pointer",
+                textAlign: "left",
+                fontSize: 14,
+                borderTop: "1px solid #eee",
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = "#f3f4f6"}
+              onMouseLeave={(e) => e.currentTarget.style.background = "white"}
+              onClick={() => {
+                const obj = objectMap.get(contextMenu.objectId!);
+                if (obj) {
+                  setClipboard(obj);
+                }
+                setContextMenu(null);
+              }}
+            >
+              Copy
+            </button>
+            <button
+              style={{
+                display: "block",
+                width: "100%",
+                padding: "8px 12px",
+                background: "white",
+                border: "none",
+                cursor: "pointer",
+                textAlign: "left",
+                fontSize: 14,
+                borderTop: "1px solid #eee",
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = "#f3f4f6"}
+              onMouseLeave={(e) => e.currentTarget.style.background = "white"}
+              onClick={() => {
+                if (onObjectDelete) {
+                  onObjectDelete(contextMenu.objectId!);
+                }
+                setContextMenu(null);
+              }}
+            >
+              Delete
+            </button>
+          </>
+        ) : (
+          <>
+            {clipboard ? (
+              <button
+                style={{
+                  display: "block",
+                  width: "100%",
+                  padding: "8px 12px",
+                  background: "white",
+                  border: "none",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  fontSize: 14,
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = "#f3f4f6"}
+                onMouseLeave={(e) => e.currentTarget.style.background = "white"}
+                onClick={() => {
+                  const id = `${clipboard.type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                  const x = contextMenu.canvasX ?? 0;
+                  const y = contextMenu.canvasY ?? 0;
+                  onObjectCreateRef.current({ ...clipboard, id, x, y } as BoardObject);
+                  setContextMenu(null);
+                }}
+              >
+                Paste
+              </button>
+            ) : (
+              <div style={{ padding: "8px 12px", fontSize: 13, color: "#999" }}>
+                No items copied
+              </div>
+            )}
+          </>
+        )}
       </div>
+      </>
     )}
     </>
   );
