@@ -336,6 +336,8 @@ interface BoardProps {
   onCursorMove: (x: number, y: number) => void;
   onObjectDrag?: (objectId: string, x: number, y: number, rotation?: number) => void;
   onObjectDragEnd?: (objectId: string, x: number, y: number) => void;
+  onObjectTransform?: (objectId: string, x: number, y: number, width: number, height: number, rotation: number) => void;
+  onObjectTransformEnd?: (objectId: string) => void;
   remoteSelections?: Record<string, { sessionId: string; selectedIds: string[] }>;
   remoteEditingMap?: Record<string, { sessionId: string; name: string }>;
   remoteDraggingIds?: Set<string>;
@@ -345,6 +347,9 @@ interface BoardProps {
   stageRef: React.RefObject<Konva.Stage | null>;
   penType?: "pen" | "marker" | "highlighter";
   penStrokeWidth?: number;
+  onDrawingPath?: (points: number[], color: string, strokeWidth: number, penType: string) => void;
+  onDrawingEnd?: () => void;
+  remoteDrawingPaths?: Record<string, { points: number[]; color: string; strokeWidth: number; penType: string }>;
 }
 
 const noop = () => {};
@@ -546,7 +551,7 @@ interface ObjectHandlers {
   onDragEnd: (id: string, obj: BoardObject, x: number, y: number, rotation: number) => void;
   onSelect: (id: string) => void;
   onContextMenu: (e: Konva.KonvaEventObject<PointerEvent>, id: string) => void;
-  onTransform: (id: string, x: number, y: number, rotation: number) => void;
+  onTransform: (id: string, x: number, y: number, rotation: number, scaleX?: number, scaleY?: number, origW?: number, origH?: number) => void;
   onTransformEnd: (obj: BoardObject, scaleX: number, scaleY: number, rotation: number, nodeX: number, nodeY: number) => void;
   onCursorMove: (x: number, y: number) => void;
 }
@@ -632,7 +637,7 @@ const MemoStickyNote = React.memo<MemoStickyProps>(({
       onPointerLeave={() => onHoverLeave()}
       onTransform={(e) => {
         const node = e.target;
-        onTransform(obj.id, node.x() - w / 2, node.y() - h / 2, node.rotation());
+        onTransform(obj.id, node.x() - w / 2, node.y() - h / 2, node.rotation(), node.scaleX(), node.scaleY(), w, h);
       }}
       onTransformEnd={(e) => {
         const node = e.target;
@@ -854,7 +859,7 @@ const MemoRectangle = React.memo<MemoRectProps>(({
       }}
       onTransform={(e) => {
         const node = e.target;
-        onTransform(obj.id, node.x() - w / 2, node.y() - h / 2, node.rotation());
+        onTransform(obj.id, node.x() - w / 2, node.y() - h / 2, node.rotation(), node.scaleX(), node.scaleY(), w, h);
       }}
       onTransformEnd={(e) => {
         const node = e.target;
@@ -947,7 +952,7 @@ const MemoCircleObj = React.memo<MemoCircleProps>(({
       }}
       onTransform={(e) => {
         const node = e.target;
-        onTransform(obj.id, node.x() - w / 2, node.y() - h / 2, node.rotation());
+        onTransform(obj.id, node.x() - w / 2, node.y() - h / 2, node.rotation(), node.scaleX(), node.scaleY(), w, h);
       }}
       onTransformEnd={(e) => {
         const node = e.target;
@@ -1035,7 +1040,7 @@ const MemoLineObj = React.memo<MemoLineProps>(({
       }}
       onTransform={(e) => {
         const node = e.target;
-        onTransform(obj.id, node.x(), node.y(), node.rotation());
+        onTransform(obj.id, node.x(), node.y(), node.rotation(), node.scaleX(), node.scaleY(), obj.width || 0, obj.height || 0);
       }}
       onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
       onContextMenu={(e) => onContextMenu(e, obj.id)}
@@ -1134,7 +1139,7 @@ const MemoTextbox = React.memo<MemoTextboxProps>(({
       onContextMenu={(e) => onContextMenu(e, obj.id)}
       onTransform={(e) => {
         const node = e.target;
-        onTransform(obj.id, node.x(), node.y(), node.rotation());
+        onTransform(obj.id, node.x(), node.y(), node.rotation(), node.scaleX(), node.scaleY(), obj.width || 0, obj.height || 0);
       }}
       onTransformEnd={(e) => {
         const node = e.target;
@@ -1363,6 +1368,8 @@ export function Board({
   onCursorMove,
   onObjectDrag,
   onObjectDragEnd,
+  onObjectTransform,
+  onObjectTransformEnd,
   remoteSelections = {},
   remoteEditingMap = {},
   remoteDraggingIds = new Set(),
@@ -1376,6 +1383,9 @@ export function Board({
   bgColor = "#f8fafc",
   penType = "pen",
   penStrokeWidth = 3,
+  onDrawingPath,
+  onDrawingEnd,
+  remoteDrawingPaths = {},
 }: BoardProps) {
   const [scale, setScale] = useState(1);
   const scaleRef = useRef(1);
@@ -1425,6 +1435,10 @@ export function Board({
   onObjectDragRef.current = onObjectDrag;
   const onObjectDragEndRef = useRef(onObjectDragEnd);
   onObjectDragEndRef.current = onObjectDragEnd;
+  const onObjectTransformRef = useRef(onObjectTransform);
+  onObjectTransformRef.current = onObjectTransform;
+  const onObjectTransformEndRef = useRef(onObjectTransformEnd);
+  onObjectTransformEndRef.current = onObjectTransformEnd;
   const onCursorMoveRef = useRef(onCursorMove);
   onCursorMoveRef.current = onCursorMove;
   const onSelectRef = useRef(onSelect);
@@ -1451,6 +1465,10 @@ export function Board({
   penTypeRef.current = penType;
   const penStrokeWidthRef = useRef(penStrokeWidth);
   penStrokeWidthRef.current = penStrokeWidth;
+  const onDrawingPathRef = useRef(onDrawingPath);
+  onDrawingPathRef.current = onDrawingPath;
+  const onDrawingEndRef = useRef(onDrawingEnd);
+  onDrawingEndRef.current = onDrawingEnd;
   const contextMenuRef = useRef(contextMenu);
   contextMenuRef.current = contextMenu;
   const connectorStyleRef = useRef(connectorStyle);
@@ -1514,8 +1532,11 @@ export function Board({
     onObjectDragRef.current?.(id, x, y);
   }, [flushDragState]);
 
-  const stableOnTransform = useCallback((id: string, x: number, y: number, rotation: number) => {
+  const stableOnTransform = useCallback((id: string, x: number, y: number, rotation: number, scaleX?: number, scaleY?: number, origW?: number, origH?: number) => {
     onObjectDragRef.current?.(id, x, y, rotation);
+    if (scaleX !== undefined && scaleY !== undefined && origW !== undefined && origH !== undefined) {
+      onObjectTransformRef.current?.(id, x, y, origW * scaleX, origH * scaleY, rotation);
+    }
   }, []);
 
   const stableOnDragEnd = useCallback((id: string, obj: BoardObject, x: number, y: number, rotation: number) => {
@@ -1535,6 +1556,7 @@ export function Board({
   }, []);
 
   const stableOnTransformEnd = useCallback((obj: BoardObject, scaleX: number, scaleY: number, rotation: number, nodeX: number, nodeY: number) => {
+    onObjectTransformEndRef.current?.(obj.id);
     if (obj.type === 'connector' || obj.type === 'drawing') return;
     if (obj.type === 'textbox') {
       const newWidth = obj.width ? Math.max(20, obj.width * scaleX) : undefined;
@@ -1922,7 +1944,9 @@ export function Board({
         const dx = pos.x - dpts[dpts.length - 2];
         const dy = pos.y - dpts[dpts.length - 1];
         if (dx * dx + dy * dy >= 9) {
-          setDrawingPath(prev => prev ? { ...prev, points: [...prev.points, pos.x, pos.y] } : null);
+          const newPoints = [...dpts, pos.x, pos.y];
+          setDrawingPath(prev => prev ? { ...prev, points: newPoints } : null);
+          onDrawingPathRef.current?.(newPoints, selectedShapeColor, penStrokeWidthRef.current, penTypeRef.current);
         }
       } else if (drawingLineRef.current) {
         setDrawingLine((prev) => (prev ? { ...prev, currentX: pos.x, currentY: pos.y } : null));
@@ -2040,6 +2064,7 @@ export function Board({
           } as any);
         }
         setDrawingPath(null);
+        onDrawingEndRef.current?.();
         return;
       }
 
@@ -2443,6 +2468,20 @@ export function Board({
             perfectDrawEnabled={false}
           />
         )}
+        {Object.entries(remoteDrawingPaths).map(([sid, rdp]) => (
+          <Line
+            key={`remote-draw-${sid}`}
+            points={rdp.points}
+            stroke={rdp.color}
+            strokeWidth={rdp.penType === "pen" ? rdp.strokeWidth * 0.7 : rdp.strokeWidth}
+            opacity={rdp.penType === "pen" ? 0.6 : rdp.penType === "highlighter" ? 0.4 : 1}
+            lineCap={rdp.penType === "marker" ? "square" : "round"}
+            lineJoin={rdp.penType === "marker" ? "miter" : "round"}
+            tension={0}
+            listening={false}
+            perfectDrawEnabled={false}
+          />
+        ))}
         {visibleObjects.map((obj) => {
           if (obj.type === "sticky") {
             const stickyObj = obj as StickyNote;
@@ -2614,42 +2653,17 @@ export function Board({
           const color = remoteSelectionMap[obj.id];
           if (!color || obj.type === 'connector') return null;
           const pad = 6;
-          let cx: number, cy: number, totalW: number, totalH: number, rot: number;
-          if (obj.type === 'drawing') {
-            const dObj = obj as Drawing;
-            let dMinX = Infinity, dMinY = Infinity, dMaxX = -Infinity, dMaxY = -Infinity;
-            for (let i = 0; i < dObj.points.length; i += 2) {
-              if (dObj.points[i] < dMinX) dMinX = dObj.points[i];
-              if (dObj.points[i] > dMaxX) dMaxX = dObj.points[i];
-              if (dObj.points[i+1] < dMinY) dMinY = dObj.points[i+1];
-              if (dObj.points[i+1] > dMaxY) dMaxY = dObj.points[i+1];
-            }
-            const dw = dMaxX - dMinX;
-            const dh = dMaxY - dMinY;
-            cx = dMinX + dw / 2;
-            cy = dMinY + dh / 2;
-            totalW = dw + pad * 2;
-            totalH = dh + pad * 2;
-            rot = 0;
-          } else {
-            const w = (obj as any).width ?? 0;
-            const h = (obj as any).height ?? 0;
-            rot = (obj as any).rotation ?? 0;
-            totalW = w + pad * 2;
-            totalH = h + pad * 2;
-            cx = (obj as any).x + w / 2;
-            cy = (obj as any).y + h / 2;
-          }
+          const node = shapeRefs.current[obj.id];
+          if (!node) return null;
+          // Use Konva's getClientRect for the exact bounding box in layer coords
+          const rect = node.getClientRect({ relativeTo: node.getLayer() ?? undefined });
           return (
             <Rect
               key={`remote-sel-${obj.id}`}
-              x={cx}
-              y={cy}
-              offsetX={totalW / 2}
-              offsetY={totalH / 2}
-              width={totalW}
-              height={totalH}
-              rotation={rot}
+              x={rect.x - pad}
+              y={rect.y - pad}
+              width={rect.width + pad * 2}
+              height={rect.height + pad * 2}
               stroke={color}
               strokeWidth={2}
               dash={[6, 4]}

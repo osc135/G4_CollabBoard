@@ -8,6 +8,7 @@ interface Board {
   created_at: string;
   updated_at: string;
   is_public: boolean;
+  is_locked: boolean;
 }
 
 interface SupabaseBoardObject {
@@ -420,5 +421,14 @@ export class SupabaseBoardService {
       color: supabaseObj.color,
       ...(supabaseObj.z_index != null ? { zIndex: supabaseObj.z_index } : {}),
     };
+  }
+
+  // Toggle board lock state (owner only)
+  static async setBoardLocked(boardId: string, locked: boolean): Promise<void> {
+    const { error } = await supabase
+      .from('boards')
+      .update({ is_locked: locked })
+      .eq('id', boardId);
+    if (error) throw error;
   }
 }
