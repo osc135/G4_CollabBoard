@@ -2,9 +2,9 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from "react-dom";
 import { Stage, Layer, Rect, Circle, Line, Text, Group, Shape, Transformer } from "react-konva";
 import Konva from "konva";
-import type { BoardObject, Cursor, StickyNote, Shape as ShapeType } from "@collabboard/shared";
+import type { BoardObject, Cursor, StickyNote, Shape as ShapeType, Textbox as TextboxType, Drawing } from "@collabboard/shared";
 
-export type Tool = "pan" | "sticky" | "rectangle" | "circle" | "line";
+export type Tool = "pan" | "sticky" | "rectangle" | "circle" | "line" | "drawing";
 export type BackgroundPattern =
   | "dots" | "lines" | "grid" | "none"
   | "blueprint" | "isometric" | "hex" | "lined"
@@ -343,6 +343,8 @@ interface BoardProps {
   onStickyLock?: (objectId: string) => void;
   onStickyUnlock?: (objectId: string) => void;
   stageRef: React.RefObject<Konva.Stage | null>;
+  penType?: "pen" | "marker" | "highlighter";
+  penStrokeWidth?: number;
 }
 
 const noop = () => {};
@@ -359,18 +361,18 @@ export function getRandomStickyColor() {
 
 // Helper function to get anchor point on an object
 function getAnchorPoint(obj: BoardObject, anchor: "top" | "right" | "bottom" | "left" | "center"): { x: number; y: number } {
-  // Connectors don't have x/y properties, return a default
-  if (obj.type === "connector") {
+  // Connectors and drawings don't have standard x/y properties, return a default
+  if (obj.type === "connector" || obj.type === "drawing") {
     return { x: 0, y: 0 };
   }
-  
-  const width = obj.type === "sticky" ? obj.width : 
-                obj.type === "rectangle" || obj.type === "circle" ? obj.width : 
+
+  const width = obj.type === "sticky" ? obj.width :
+                obj.type === "rectangle" || obj.type === "circle" ? obj.width :
                 obj.type === "line" ? 100 : 0;
-  const height = obj.type === "sticky" ? obj.height : 
-                 obj.type === "rectangle" || obj.type === "circle" ? obj.height : 
+  const height = obj.type === "sticky" ? obj.height :
+                 obj.type === "rectangle" || obj.type === "circle" ? obj.height :
                  obj.type === "line" ? 100 : 0;
-  
+
   const centerX = obj.x + width / 2;
   const centerY = obj.y + height / 2;
   
@@ -411,18 +413,18 @@ function getBestAnchor(fromObj: BoardObject, toObj: BoardObject): { startAnchor:
 
 // Get the best connection point on object perimeter - allows for any point, not just 4 anchors
 function getBestPerimeterPoint(obj: BoardObject, targetPoint: { x: number; y: number }): { x: number; y: number } {
-  // Connectors don't have x/y properties, return target point as fallback
-  if (obj.type === "connector") {
+  // Connectors and drawings don't have standard x/y properties, return target point as fallback
+  if (obj.type === "connector" || obj.type === "drawing") {
     return targetPoint;
   }
-  
-  const width = obj.type === "sticky" ? obj.width : 
-                obj.type === "rectangle" || obj.type === "circle" ? obj.width : 
+
+  const width = obj.type === "sticky" ? obj.width :
+                obj.type === "rectangle" || obj.type === "circle" ? obj.width :
                 obj.type === "line" ? 100 : 0;
-  const height = obj.type === "sticky" ? obj.height : 
-                 obj.type === "rectangle" || obj.type === "circle" ? obj.height : 
+  const height = obj.type === "sticky" ? obj.height :
+                 obj.type === "rectangle" || obj.type === "circle" ? obj.height :
                  obj.type === "line" ? 100 : 0;
-  
+
   const objCenterX = obj.x + width / 2;
   const objCenterY = obj.y + height / 2;
   
@@ -503,6 +505,23 @@ function findObjectAtPoint(objects: BoardObject[], point: { x: number; y: number
   for (let i = objects.length - 1; i >= 0; i--) {
     const obj = objects[i];
     if (obj.type === "connector") continue;
+
+    if (obj.type === "drawing") {
+      const dPts = obj.points;
+      let dMinX = Infinity, dMinY = Infinity, dMaxX = -Infinity, dMaxY = -Infinity;
+      for (let i = 0; i < dPts.length; i += 2) {
+        if (dPts[i] < dMinX) dMinX = dPts[i];
+        if (dPts[i] > dMaxX) dMaxX = dPts[i];
+        if (dPts[i+1] < dMinY) dMinY = dPts[i+1];
+        if (dPts[i+1] > dMaxY) dMaxY = dPts[i+1];
+      }
+      const padding = 10;
+      if (point.x >= dMinX - padding && point.x <= dMaxX + padding &&
+          point.y >= dMinY - padding && point.y <= dMaxY + padding) {
+        return obj;
+      }
+      continue;
+    }
 
     const width = obj.type === "sticky" ? obj.width :
                   obj.type === "rectangle" || obj.type === "circle" ? obj.width :
@@ -1070,7 +1089,174 @@ const MemoLineObj = React.memo<MemoLineProps>(({
   );
 });
 
+// ============= Memoized Textbox =============
+
+interface MemoTextboxProps extends ObjectHandlers {
+  obj: TextboxType;
+  isSelected: boolean;
+  shapeRefs: React.MutableRefObject<Record<string, Konva.Group>>;
+}
+
+const MemoTextbox = React.memo<MemoTextboxProps>(({
+  obj, isSelected, shapeRefs,
+  onDragMove, onDragEnd, onSelect, onContextMenu, onTransform, onTransformEnd, onCursorMove,
+}) => {
+  const fontSize = obj.fontSize || 48;
+  const color = obj.color || '#1a1a1a';
+  const rot = obj.rotation ?? 0;
+
+  return (
+    <Group
+      key={obj.id}
+      ref={(el) => { if (el) shapeRefs.current[obj.id] = el; }}
+      x={obj.x}
+      y={obj.y}
+      rotation={rot}
+      draggable
+      onDragMove={(e) => {
+        onDragMove(obj.id, e.target.x(), e.target.y());
+        const stage = e.target.getStage();
+        if (stage) {
+          const point = stage.getRelativePointerPosition();
+          if (point) onCursorMove(point.x, point.y);
+        }
+      }}
+      onDragEnd={(e) => {
+        onDragEnd(obj.id, obj, e.target.x(), e.target.y(), e.target.rotation());
+        const stage = e.target.getStage();
+        if (stage) {
+          stage.setPointersPositions(e.evt);
+          const point = stage.getRelativePointerPosition();
+          if (point) onCursorMove(point.x, point.y);
+        }
+      }}
+      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onContextMenu={(e) => onContextMenu(e, obj.id)}
+      onTransform={(e) => {
+        const node = e.target;
+        onTransform(obj.id, node.x(), node.y(), node.rotation());
+      }}
+      onTransformEnd={(e) => {
+        const node = e.target;
+        onTransformEnd(obj as any, node.scaleX(), node.scaleY(), node.rotation(), node.x(), node.y());
+        node.scaleX(1);
+        node.scaleY(1);
+      }}
+    >
+      <Text
+        text={obj.text}
+        fontSize={fontSize}
+        fontFamily="system-ui, -apple-system, 'Segoe UI', sans-serif"
+        fontStyle="bold"
+        fill={isSelected ? '#3b82f6' : color}
+        wrap="word"
+        width={obj.width}
+        height={obj.height}
+      />
+    </Group>
+  );
+});
+
 // ============= Memoized Connector =============
+
+// ============= Memoized Drawing =============
+
+interface MemoDrawingProps extends ObjectHandlers {
+  obj: Drawing;
+  isSelected: boolean;
+  shapeRefs: React.MutableRefObject<Record<string, Konva.Group>>;
+  currentTool: Tool;
+}
+
+const MemoDrawing = React.memo<MemoDrawingProps>(({
+  obj, isSelected, shapeRefs, currentTool,
+  onDragMove, onDragEnd, onSelect, onContextMenu, onCursorMove,
+}) => {
+  const pts = obj.points;
+  const isDrawingTool = currentTool === "drawing";
+  // Compute bounding box
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = 0; i < pts.length; i += 2) {
+    const px = pts[i], py = pts[i + 1];
+    if (px < minX) minX = px;
+    if (px > maxX) maxX = px;
+    if (py < minY) minY = py;
+    if (py > maxY) maxY = py;
+  }
+  // Translate points to local coords
+  const localPoints: number[] = [];
+  for (let i = 0; i < pts.length; i += 2) {
+    localPoints.push(pts[i] - minX, pts[i + 1] - minY);
+  }
+
+  const pType = obj.penType || "pen";
+  const opacity = pType === "highlighter" ? 0.4 : 1;
+
+  return (
+    <Group
+      x={minX}
+      y={minY}
+      ref={(el) => {
+        if (el) shapeRefs.current[obj.id] = el;
+      }}
+      draggable={!isDrawingTool}
+      listening={!isDrawingTool}
+      onDragMove={(e) => {
+        const newX = e.target.x();
+        const newY = e.target.y();
+        onDragMove(obj.id, newX, newY);
+        const stage = e.target.getStage();
+        if (stage) {
+          const point = stage.getRelativePointerPosition();
+          if (point) onCursorMove(point.x, point.y);
+        }
+      }}
+      onDragEnd={(e) => {
+        const node = e.target;
+        const dx = node.x() - minX;
+        const dy = node.y() - minY;
+        // Recompute absolute points with offset
+        const newPts: number[] = [];
+        for (let i = 0; i < pts.length; i += 2) {
+          newPts.push(pts[i] + dx, pts[i + 1] + dy);
+        }
+        onDragEnd(obj.id, { ...obj, points: newPts } as any, node.x(), node.y(), 0);
+        const stage = node.getStage();
+        if (stage) {
+          stage.setPointersPositions(e.evt);
+          const point = stage.getRelativePointerPosition();
+          if (point) onCursorMove(point.x, point.y);
+        }
+      }}
+      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onContextMenu={(e) => onContextMenu(e, obj.id)}
+    >
+      <Line
+        points={localPoints}
+        stroke={isSelected ? "#1e293b" : obj.color}
+        strokeWidth={pType === "pen" ? obj.strokeWidth * 0.7 : obj.strokeWidth}
+        tension={0}
+        opacity={pType === "pen" ? 0.6 : opacity}
+        lineCap={pType === "marker" ? "square" : "round"}
+        lineJoin={pType === "marker" ? "miter" : "round"}
+        hitStrokeWidth={Math.max(obj.strokeWidth, 15)}
+        perfectDrawEnabled={false}
+      />
+      {isSelected && (
+        <Rect
+          x={-2}
+          y={-2}
+          width={maxX - minX + 4}
+          height={maxY - minY + 4}
+          stroke="#3b82f6"
+          strokeWidth={1}
+          dash={[4, 4]}
+          listening={false}
+        />
+      )}
+    </Group>
+  );
+});
 
 interface MemoConnectorProps {
   obj: BoardObject;
@@ -1188,6 +1374,8 @@ export function Board({
   selectedShapeColor = "#3b82f6",
   backgroundPattern = "dots",
   bgColor = "#f8fafc",
+  penType = "pen",
+  penStrokeWidth = 3,
 }: BoardProps) {
   const [scale, setScale] = useState(1);
   const scaleRef = useRef(1);
@@ -1226,6 +1414,7 @@ export function Board({
     currentX: number;
     currentY: number;
   } | null>(null);
+  const [drawingPath, setDrawingPath] = useState<{ id: string; points: number[] } | null>(null);
 
   // ============= Refs for unstable props (stable callback pattern) =============
   const onObjectUpdateRef = useRef(onObjectUpdate);
@@ -1256,6 +1445,12 @@ export function Board({
   selectionBoxRef.current = selectionBox;
   const drawingLineRef = useRef(drawingLine);
   drawingLineRef.current = drawingLine;
+  const drawingPathRef = useRef(drawingPath);
+  drawingPathRef.current = drawingPath;
+  const penTypeRef = useRef(penType);
+  penTypeRef.current = penType;
+  const penStrokeWidthRef = useRef(penStrokeWidth);
+  penStrokeWidthRef.current = penStrokeWidth;
   const contextMenuRef = useRef(contextMenu);
   contextMenuRef.current = contextMenu;
   const connectorStyleRef = useRef(connectorStyle);
@@ -1328,7 +1523,9 @@ export function Board({
     if (dragRafRef.current) { cancelAnimationFrame(dragRafRef.current); dragRafRef.current = null; }
     setDraggingObject(null);
     onObjectDragEndRef.current?.(id, x, y);
-    if (obj.type !== 'connector') {
+    if (obj.type === 'drawing') {
+      onObjectUpdateRef.current(obj);
+    } else if (obj.type !== 'connector') {
       onObjectUpdateRef.current({ ...obj, x, y, rotation });
     }
   }, []);
@@ -1338,7 +1535,13 @@ export function Board({
   }, []);
 
   const stableOnTransformEnd = useCallback((obj: BoardObject, scaleX: number, scaleY: number, rotation: number, nodeX: number, nodeY: number) => {
-    if (obj.type === 'connector' || obj.type === 'textbox') return;
+    if (obj.type === 'connector' || obj.type === 'drawing') return;
+    if (obj.type === 'textbox') {
+      const newWidth = obj.width ? Math.max(20, obj.width * scaleX) : undefined;
+      const newHeight = obj.height ? Math.max(20, obj.height * scaleY) : undefined;
+      onObjectUpdateRef.current({ ...obj, x: nodeX, y: nodeY, width: newWidth, height: newHeight, rotation });
+      return;
+    }
     const minSize = obj.type === 'sticky' ? 50 : 20;
     const newWidth = Math.max(minSize, obj.width * scaleX);
     const newHeight = Math.max(minSize, obj.height * scaleY);
@@ -1364,7 +1567,9 @@ export function Board({
     setDraggingObject(null);
     setDraggingStickyId(null);
     onObjectDragEndRef.current?.(id, x, y);
-    if (obj.type !== 'connector') {
+    if (obj.type === 'drawing') {
+      onObjectUpdateRef.current(obj);
+    } else if (obj.type !== 'connector') {
       onObjectUpdateRef.current({ ...obj, x, y, rotation });
     }
   }, []);
@@ -1445,10 +1650,10 @@ export function Board({
         const endObj = c.endObjectId ? objMap.get(c.endObjectId) ?? null : null;
 
         // Resolve start/end points from connected objects or fallback to stored points
-        const sx = startObj && startObj.type !== 'connector' ? startObj.x : c.startPoint?.x ?? 0;
-        const sy = startObj && startObj.type !== 'connector' ? startObj.y : c.startPoint?.y ?? 0;
-        const ex = endObj && endObj.type !== 'connector' ? endObj.x : c.endPoint?.x ?? 0;
-        const ey = endObj && endObj.type !== 'connector' ? endObj.y : c.endPoint?.y ?? 0;
+        const sx = startObj && startObj.type !== 'connector' && startObj.type !== 'drawing' ? startObj.x : c.startPoint?.x ?? 0;
+        const sy = startObj && startObj.type !== 'connector' && startObj.type !== 'drawing' ? startObj.y : c.startPoint?.y ?? 0;
+        const ex = endObj && endObj.type !== 'connector' && endObj.type !== 'drawing' ? endObj.x : c.endPoint?.x ?? 0;
+        const ey = endObj && endObj.type !== 'connector' && endObj.type !== 'drawing' ? endObj.y : c.endPoint?.y ?? 0;
 
         // Connector bounding box with extra padding for curves
         const connPad = 150; // accounts for curved/orthogonal paths overshooting
@@ -1458,6 +1663,18 @@ export function Board({
         const cBottom = Math.max(sy, ey) + (endObj && endObj.type !== 'connector' ? (endObj as any).height ?? 100 : 0) + connPad;
 
         return !(cRight < left || cLeft > right || cBottom < top || cTop > bottom);
+      }
+
+      if (obj.type === 'drawing') {
+        const dPts = obj.points;
+        let dMinX = Infinity, dMinY = Infinity, dMaxX = -Infinity, dMaxY = -Infinity;
+        for (let i = 0; i < dPts.length; i += 2) {
+          if (dPts[i] < dMinX) dMinX = dPts[i];
+          if (dPts[i] > dMaxX) dMaxX = dPts[i];
+          if (dPts[i+1] < dMinY) dMinY = dPts[i+1];
+          if (dPts[i+1] > dMaxY) dMaxY = dPts[i+1];
+        }
+        return !(dMaxX < left || dMinX > right || dMaxY < top || dMinY > bottom);
       }
 
       const ox = obj.x;
@@ -1531,11 +1748,11 @@ export function Board({
       let startObj = connector.startObjectId ? objectMap.get(connector.startObjectId) ?? null : null;
       let endObj = connector.endObjectId ? objectMap.get(connector.endObjectId) ?? null : null;
 
-      if (startObj && startObj.type !== 'connector' && startObj.id === dragId) {
-        startObj = { ...startObj, x: draggingObject.x, y: draggingObject.y };
+      if (startObj && startObj.type !== 'connector' && startObj.type !== 'drawing' && startObj.id === dragId) {
+        startObj = { ...startObj, x: draggingObject.x, y: draggingObject.y } as typeof startObj;
       }
-      if (endObj && endObj.type !== 'connector' && endObj.id === dragId) {
-        endObj = { ...endObj, x: draggingObject.x, y: draggingObject.y };
+      if (endObj && endObj.type !== 'connector' && endObj.type !== 'drawing' && endObj.id === dragId) {
+        endObj = { ...endObj, x: draggingObject.x, y: draggingObject.y } as typeof endObj;
       }
 
       if (startObj && endObj) {
@@ -1676,7 +1893,9 @@ export function Board({
       const pos = stage.getRelativePointerPosition();
       if (!pos) return;
 
-      if (curTool === "line") {
+      if (curTool === "drawing") {
+        setDrawingPath({ id: `drawing-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, points: [pos.x, pos.y] });
+      } else if (curTool === "line") {
         setDrawingLine({
           id: `line-${Date.now()}`,
           startX: pos.x,
@@ -1698,7 +1917,14 @@ export function Board({
       const pos = stage.getRelativePointerPosition();
       if (!pos) return;
 
-      if (drawingLineRef.current) {
+      if (drawingPathRef.current) {
+        const dpts = drawingPathRef.current.points;
+        const dx = pos.x - dpts[dpts.length - 2];
+        const dy = pos.y - dpts[dpts.length - 1];
+        if (dx * dx + dy * dy >= 9) {
+          setDrawingPath(prev => prev ? { ...prev, points: [...prev.points, pos.x, pos.y] } : null);
+        }
+      } else if (drawingLineRef.current) {
         setDrawingLine((prev) => (prev ? { ...prev, currentX: pos.x, currentY: pos.y } : null));
       } else if (selectionBoxRef.current) {
         setSelectionBox((prev) => (prev ? { ...prev, end: { x: pos.x, y: pos.y } } : null));
@@ -1803,6 +2029,20 @@ export function Board({
         return;
       }
 
+      // Handle drawing path completion
+      const dp = drawingPathRef.current;
+      if (dp) {
+        if (dp.points.length >= 4) {  // at least 2 points
+          onObjectCreateRef.current({
+            id: dp.id, type: "drawing", points: dp.points,
+            color: selectedShapeColor, strokeWidth: penStrokeWidthRef.current,
+            penType: penTypeRef.current,
+          } as any);
+        }
+        setDrawingPath(null);
+        return;
+      }
+
       if (e.target !== e.target.getStage()) return;
 
       // Handle line creation
@@ -1871,6 +2111,17 @@ export function Board({
           const ty = Math.min(obj.y, obj.y + obj.height);
           const by = Math.max(obj.y, obj.y + obj.height);
           const intersects = !(rx < minX || lx > maxX || by < minY || ty > maxY);
+          if (intersects) ids.push(obj.id);
+        } else if (obj.type === "drawing") {
+          const dObj = obj as Drawing;
+          let dMinX = Infinity, dMinY = Infinity, dMaxX = -Infinity, dMaxY = -Infinity;
+          for (let i = 0; i < dObj.points.length; i += 2) {
+            if (dObj.points[i] < dMinX) dMinX = dObj.points[i];
+            if (dObj.points[i] > dMaxX) dMaxX = dObj.points[i];
+            if (dObj.points[i+1] < dMinY) dMinY = dObj.points[i+1];
+            if (dObj.points[i+1] > dMaxY) dMaxY = dObj.points[i+1];
+          }
+          const intersects = !(dMaxX < minX || dMinX > maxX || dMaxY < minY || dMinY > maxY);
           if (intersects) ids.push(obj.id);
         }
       });
@@ -1955,7 +2206,7 @@ export function Board({
       }
       onSelectRef.current([]);
       const curTool = toolRef.current;
-      if (curTool === "pan") return;
+      if (curTool === "pan" || curTool === "drawing") return;
       const stage = e.target.getStage();
       if (!stage) return;
       const pos = stage.getRelativePointerPosition();
@@ -2179,6 +2430,19 @@ export function Board({
             listening={false}
           />
         )}
+        {drawingPath && (
+          <Line
+            points={drawingPath.points}
+            stroke={selectedShapeColor}
+            strokeWidth={penType === "pen" ? penStrokeWidth * 0.7 : penStrokeWidth}
+            opacity={penType === "pen" ? 0.6 : penType === "highlighter" ? 0.4 : 1}
+            lineCap={penType === "marker" ? "square" : "round"}
+            lineJoin={penType === "marker" ? "miter" : "round"}
+            tension={0}
+            listening={false}
+            perfectDrawEnabled={false}
+          />
+        )}
         {visibleObjects.map((obj) => {
           if (obj.type === "sticky") {
             const stickyObj = obj as StickyNote;
@@ -2266,6 +2530,43 @@ export function Board({
               />
             );
           }
+          if (obj.type === "textbox") {
+            const textObj = obj as TextboxType;
+            return (
+              <MemoTextbox
+                key={obj.id}
+                obj={textObj}
+                isSelected={selectedIdsSet.has(obj.id)}
+                shapeRefs={shapeRefs}
+                onDragMove={stableOnDragMove}
+                onDragEnd={stableOnDragEnd}
+                onSelect={stableOnSelect}
+                onContextMenu={handleObjectContextMenu}
+                onTransform={stableOnTransform}
+                onTransformEnd={stableOnTransformEnd}
+                onCursorMove={stableOnCursorMove}
+              />
+            );
+          }
+          if (obj.type === "drawing") {
+            const drawObj = obj as Drawing;
+            return (
+              <MemoDrawing
+                key={obj.id}
+                obj={drawObj}
+                isSelected={selectedIdsSet.has(obj.id)}
+                shapeRefs={shapeRefs}
+                currentTool={tool}
+                onDragMove={stableOnDragMove}
+                onDragEnd={stableOnDragEnd}
+                onSelect={stableOnSelect}
+                onContextMenu={handleObjectContextMenu}
+                onTransform={stableOnTransform}
+                onTransformEnd={stableOnTransformEnd}
+                onCursorMove={stableOnCursorMove}
+              />
+            );
+          }
           if (obj.type === "connector") {
             const connector = obj as any;
             const cached = connectorEndpoints.get(obj.id);
@@ -2312,15 +2613,33 @@ export function Board({
         {visibleObjects.map((obj) => {
           const color = remoteSelectionMap[obj.id];
           if (!color || obj.type === 'connector') return null;
-          const w = (obj as any).width ?? 0;
-          const h = (obj as any).height ?? 0;
-          const rot = (obj as any).rotation ?? 0;
           const pad = 6;
-          const totalW = w + pad * 2;
-          const totalH = h + pad * 2;
-          // Use center pivot to match object rotation
-          const cx = obj.x + w / 2;
-          const cy = obj.y + h / 2;
+          let cx: number, cy: number, totalW: number, totalH: number, rot: number;
+          if (obj.type === 'drawing') {
+            const dObj = obj as Drawing;
+            let dMinX = Infinity, dMinY = Infinity, dMaxX = -Infinity, dMaxY = -Infinity;
+            for (let i = 0; i < dObj.points.length; i += 2) {
+              if (dObj.points[i] < dMinX) dMinX = dObj.points[i];
+              if (dObj.points[i] > dMaxX) dMaxX = dObj.points[i];
+              if (dObj.points[i+1] < dMinY) dMinY = dObj.points[i+1];
+              if (dObj.points[i+1] > dMaxY) dMaxY = dObj.points[i+1];
+            }
+            const dw = dMaxX - dMinX;
+            const dh = dMaxY - dMinY;
+            cx = dMinX + dw / 2;
+            cy = dMinY + dh / 2;
+            totalW = dw + pad * 2;
+            totalH = dh + pad * 2;
+            rot = 0;
+          } else {
+            const w = (obj as any).width ?? 0;
+            const h = (obj as any).height ?? 0;
+            rot = (obj as any).rotation ?? 0;
+            totalW = w + pad * 2;
+            totalH = h + pad * 2;
+            cx = (obj as any).x + w / 2;
+            cy = (obj as any).y + h / 2;
+          }
           return (
             <Rect
               key={`remote-sel-${obj.id}`}

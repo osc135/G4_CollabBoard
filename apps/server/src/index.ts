@@ -3,6 +3,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import {
   getBoardState,
@@ -19,18 +20,16 @@ import rateLimit from "express-rate-limit";
 import { AIService } from "./ai-service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const snapshotsDir = path.join(__dirname, "data", "snapshots");
+
+// Ensure snapshots directory exists
+if (!fs.existsSync(snapshotsDir)) {
+  fs.mkdirSync(snapshotsDir, { recursive: true });
+}
+
 const app = express();
 app.use(cors());
-app.use(express.json());
-
-// Serve static files from React build in production
-if (process.env.NODE_ENV === "production") {
-  const clientBuildPath = path.join(__dirname, "../../web/dist");
-  app.use(express.static(clientBuildPath));
-  app.get("*", (req, res) => {
-    res.sendFile(path.join(clientBuildPath, "index.html"));
-  });
-}
+app.use(express.json({ limit: "5mb" }));
 
 // API endpoint for room previews
 app.get("/api/room/:roomId/preview", async (req, res) => {
@@ -52,6 +51,64 @@ app.get("/api/room/:roomId/preview", async (req, res) => {
   }
 });
 
+// Snapshot upload endpoint
+app.post("/api/room/:roomId/snapshot", (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { image } = req.body;
+    if (!image || typeof image !== "string") {
+      return res.status(400).json({ error: "Missing image data" });
+    }
+    // Strip data URL prefix
+    const base64Data = image.replace(/^data:image\/png;base64,/, "");
+    const filePath = path.join(snapshotsDir, `${roomId}.png`);
+    fs.writeFileSync(filePath, Buffer.from(base64Data, "base64"));
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Snapshot upload error:", error);
+    res.status(500).json({ error: "Failed to save snapshot" });
+  }
+});
+
+// Snapshot serve endpoint
+app.get("/api/room/:roomId/snapshot.png", (req, res) => {
+  const filePath = path.join(snapshotsDir, `${req.params.roomId}.png`);
+  if (fs.existsSync(filePath)) {
+    res.setHeader("Content-Type", "image/png");
+    res.sendFile(filePath);
+  } else {
+    res.status(404).json({ error: "No snapshot found" });
+  }
+});
+
+// OG share route — serves meta tags then redirects to the read-only viewer
+app.get("/share/:roomId", (req, res) => {
+  const { roomId } = req.params;
+  const snapshotUrl = `/api/room/${roomId}/snapshot.png`;
+  const viewUrl = `/view/${roomId}`;
+
+  res.setHeader("Content-Type", "text/html");
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>CollabBoard - Check out this whiteboard!</title>
+  <meta property="og:title" content="CollabBoard - Check out this whiteboard!" />
+  <meta property="og:description" content="View this collaborative whiteboard on CollabBoard" />
+  <meta property="og:image" content="${snapshotUrl}" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="CollabBoard - Check out this whiteboard!" />
+  <meta name="twitter:description" content="View this collaborative whiteboard on CollabBoard" />
+  <meta name="twitter:image" content="${snapshotUrl}" />
+  <meta http-equiv="refresh" content="0;url=${viewUrl}" />
+</head>
+<body>
+  <p>Redirecting to <a href="${viewUrl}">CollabBoard viewer</a>...</p>
+</body>
+</html>`);
+});
+
 // Rate limiter for AI commands: 10 requests per minute per IP
 const aiRateLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -64,34 +121,58 @@ const aiRateLimiter = rateLimit({
   },
 });
 
-// API endpoint for AI commands
+// Streaming AI endpoint — sends actions as newline-delimited JSON
 app.post("/api/ai/command", aiRateLimiter, async (req, res) => {
   try {
     const { command, roomId = "default", history = [], objects = [] } = req.body;
     console.log("AI command received via API:", command, "for room:", roomId);
 
-    // Use objects from the client (Supabase is the source of truth)
-    // Fall back to server in-memory store if client didn't send objects
     const boardObjects = objects.length > 0 ? objects : getBoardState(roomId).objects;
-    const response = await aiService.processCommand(
+
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Transfer-Encoding", "chunked");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+
+    await aiService.processCommandStreaming(
       command,
       boardObjects,
       "api-user",
-      history
+      history,
+      (action) => {
+        res.write(JSON.stringify({ type: "action", action }) + "\n");
+      },
+      (text) => {
+        res.write(JSON.stringify({ type: "text", text }) + "\n");
+      },
     );
-    console.log("AI response:", response);
 
-    // Return response with actions — the client handles object creation
-    // via Supabase, which broadcasts to all users through realtime subscriptions
-    res.json(response);
+    res.write(JSON.stringify({ type: "done" }) + "\n");
+    res.end();
   } catch (error) {
     console.error("AI command error:", error);
-    res.status(500).json({
-      message: "Sorry, I encountered an error processing your request.",
-      error: error instanceof Error ? error.message : "Unknown error"
-    });
+    // If headers already sent, write error as NDJSON line
+    if (res.headersSent) {
+      res.write(JSON.stringify({ type: "error", message: "Sorry, I encountered an error processing your request." }) + "\n");
+      res.end();
+    } else {
+      res.status(500).json({
+        message: "Sorry, I encountered an error processing your request.",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
   }
 });
+
+// Serve static files from React build in production
+// IMPORTANT: This catch-all must come AFTER all API and share routes
+if (process.env.NODE_ENV === "production") {
+  const clientBuildPath = path.join(__dirname, "../../web/dist");
+  app.use(express.static(clientBuildPath));
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(clientBuildPath, "index.html"));
+  });
+}
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, { cors: { origin: "*" } });
@@ -208,6 +289,20 @@ io.on("connection", (socket) => {
               zIndex: action.arguments.zIndex ?? 0,
             };
             addObject(roomId, line);
+          } else if (action.tool === 'create_text') {
+            const textObj = {
+              id: `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              type: 'textbox' as const,
+              x: defaultX(action.arguments),
+              y: defaultY(action.arguments),
+              text: action.arguments.text || '',
+              fontSize: action.arguments.fontSize || 48,
+              color: action.arguments.color || '#1a1a1a',
+              width: action.arguments.width,
+              rotation: 0,
+              zIndex: action.arguments.zIndex ?? 0,
+            };
+            addObject(roomId, textObj);
           }
           // organize_board, move_object, delete_object, clear_board, and analyze_board
           // are handled client-side where the viewport context and Supabase sync live.
@@ -217,7 +312,7 @@ io.on("connection", (socket) => {
         const updatedState = getBoardState(roomId);
         io.in(roomId).emit("board:state", { objects: updatedState.objects });
       }
-      
+
       // Send response back to the requesting client
       socket.emit("ai:response", response);
     } catch (error) {
@@ -243,12 +338,12 @@ async function start() {
   // Load default room for backward compatibility
   const defaultState = await loadFromDisk("default");
   loadBoardState("default", defaultState);
-  
+
   let savePromise = Promise.resolve();
   setPersist((boardId, s) => {
     savePromise = savePromise.then(() => saveToDisk(boardId, s)).catch((err) => console.error("Save failed:", err));
   });
-  
+
   httpServer.listen(PORT, () => console.log(`Server at http://localhost:${PORT}`));
 }
 start();

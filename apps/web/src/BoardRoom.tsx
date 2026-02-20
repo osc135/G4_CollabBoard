@@ -6,33 +6,58 @@ import { useSupabaseBoard } from "./useSupabaseBoard";
 import { useAuth } from "./contexts/AuthContext";
 import { extractRoomCode } from "./utils/roomCode";
 import { AIChat } from "./components/AIChat";
+import { ShareModal } from "./components/ShareModal";
 import Konva from "konva";
 
+interface BoardRoomProps {
+  readOnly?: boolean;
+}
 
-export function BoardRoom() {
+export function BoardRoom({ readOnly = false }: BoardRoomProps) {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const aiPrompt = searchParams.get('ai');
-  const { session, loading, displayName, userId } = useAuth();
-  const [tool, setTool] = useState<Tool>("pan");
+
+  // Stable viewer ID for read-only mode (persists across re-renders)
+  const [viewerId] = useState(() => `viewer-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
+
+  // In read-only mode, auth may not be available (user not logged in)
+  const auth = useAuth();
+  const session = auth.session;
+  const loading = auth.loading;
+  const displayName = readOnly ? "Viewer" : auth.displayName;
+  const userId = readOnly ? viewerId : auth.userId;
+
+  const [tool, setTool] = useState<Tool>(readOnly ? "pan" : "pan");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedStickyColor, setSelectedStickyColor] = useState<string>(STICKY_COLORS[0]);
   const [selectedShapeColor, setSelectedShapeColor] = useState<string>("#3b82f6");
+  const [penType, setPenType] = useState<"pen" | "marker" | "highlighter">("pen");
+  const [penStrokeWidth, setPenStrokeWidth] = useState<number>(3);
   const [backgroundPattern, setBackgroundPattern] = useState<BackgroundPattern>("dots");
   const [bgColor, setBgColor] = useState("#f8fafc");
   const [showBgPicker, setShowBgPicker] = useState(false);
   const bgPickerRef = useRef<HTMLDivElement>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [inviteCode, setInviteCode] = useState<string>("");
   const stageRef = useRef<Konva.Stage | null>(null);
 
   const { connected, objects, cursors, presence, remoteSelections, remoteEditingMap, remoteDraggingIds, emitCursor, emitSelection, emitTextEdit, emitStickyLock, emitStickyUnlock, emitObjectDrag, emitObjectDragEnd, createObject, updateObject, deleteObject } = useSupabaseBoard(
     userId,
     displayName,
-    roomId // Pass the room ID to the Supabase hook
+    roomId
   );
 
+  // No-op callbacks for read-only mode
+  const noop = useCallback(() => {}, []);
+  const noopObj = useCallback((_obj: BoardObject) => {}, []);
+  const noopStr = useCallback((_id: string) => {}, []);
+  const noopDrag = useCallback((_id: string, _x: number, _y: number, _r?: number) => {}, []);
+  const noopDragEnd = useCallback((_id: string, _x: number, _y: number) => {}, []);
+  const noopTextEdit = useCallback((_id: string, _text: string) => {}, []);
+  const noopCursor = useCallback((_x: number, _y: number) => {}, []);
 
   // Undo stack for local deletions only
   const [deletedStack, setDeletedStack] = useState<BoardObject[]>([]);
@@ -56,8 +81,9 @@ export function BoardRoom() {
 
   // Broadcast selection changes to other users
   useEffect(() => {
+    if (readOnly) return;
     emitSelection(selectedIds);
-  }, [selectedIds, emitSelection]);
+  }, [selectedIds, emitSelection, readOnly]);
 
   // Extract invite code from room ID
   useEffect(() => {
@@ -67,6 +93,7 @@ export function BoardRoom() {
   }, [roomId]);
 
   useEffect(() => {
+    if (readOnly) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       const active = document.activeElement;
       const isInput = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" || (active as HTMLElement)?.isContentEditable;
@@ -87,7 +114,7 @@ export function BoardRoom() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedIds, deleteWithUndo, handleUndo]);
+  }, [selectedIds, deleteWithUndo, handleUndo, readOnly]);
 
   useEffect(() => {
     if (!showBgPicker) return;
@@ -100,17 +127,20 @@ export function BoardRoom() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showBgPicker]);
 
-  if (loading) {
-    return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#1e293b" }}>
-        <span style={{ color: "white" }}>Loading…</span>
-      </div>
-    );
-  }
+  // In read-only mode, skip auth checks
+  if (!readOnly) {
+    if (loading) {
+      return (
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#1e293b" }}>
+          <span style={{ color: "white" }}>Loading…</span>
+        </div>
+      );
+    }
 
-  if (!session) {
-    navigate("/");
-    return null;
+    if (!session) {
+      navigate("/");
+      return null;
+    }
   }
 
   return (
@@ -118,51 +148,117 @@ export function BoardRoom() {
       <Board
         objects={objects}
         cursors={cursors}
-        tool={tool}
-        selectedIds={selectedIds}
-        onSelect={setSelectedIds}
-        onObjectCreate={createObject}
-        onObjectUpdate={updateObject}
-        onObjectDelete={deleteWithUndo}
-        onCursorMove={emitCursor}
-        onObjectDrag={emitObjectDrag}
-        onObjectDragEnd={emitObjectDragEnd}
+        tool={readOnly ? "pan" : tool}
+        selectedIds={readOnly ? [] : selectedIds}
+        onSelect={readOnly ? noop : setSelectedIds}
+        onObjectCreate={readOnly ? noopObj : createObject}
+        onObjectUpdate={readOnly ? noopObj : updateObject}
+        onObjectDelete={readOnly ? noopStr : deleteWithUndo}
+        onCursorMove={readOnly ? noopCursor : emitCursor}
+        onObjectDrag={readOnly ? noopDrag : emitObjectDrag}
+        onObjectDragEnd={readOnly ? noopDragEnd : emitObjectDragEnd}
         remoteSelections={remoteSelections}
         remoteEditingMap={remoteEditingMap}
         remoteDraggingIds={remoteDraggingIds}
-        onTextEdit={emitTextEdit}
-        onStickyLock={emitStickyLock}
-        onStickyUnlock={emitStickyUnlock}
+        onTextEdit={readOnly ? noopTextEdit : emitTextEdit}
+        onStickyLock={readOnly ? noopStr : emitStickyLock}
+        onStickyUnlock={readOnly ? noopStr : emitStickyUnlock}
         stageRef={stageRef}
         selectedStickyColor={selectedStickyColor}
         selectedShapeColor={selectedShapeColor}
         backgroundPattern={backgroundPattern}
         bgColor={bgColor}
+        penType={penType}
+        penStrokeWidth={penStrokeWidth}
       />
-      <div style={{ 
-        position: "absolute", 
-        top: 16, 
-        left: 16, 
+
+      {readOnly ? (
+        /* Read-only minimal top bar */
+        <div style={{
+          position: "absolute",
+          top: 16,
+          left: 16,
+          right: 16,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          background: "linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(250,250,250,0.98))",
+          backdropFilter: "blur(10px)",
+          padding: "10px 16px",
+          borderRadius: 12,
+          boxShadow: "0 4px 20px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.05)",
+          border: "1px solid rgba(0,0,0,0.06)",
+          zIndex: 10,
+        }}>
+          <span style={{ fontSize: 15, fontWeight: 600, color: "#1e293b" }}>CollabBoard</span>
+          <span style={{
+            fontSize: 11,
+            fontWeight: 500,
+            color: "#6b7280",
+            background: "rgba(0,0,0,0.05)",
+            padding: "3px 8px",
+            borderRadius: 4,
+          }}>
+            VIEW ONLY
+          </span>
+          <div style={{ flex: 1 }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <div style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: connected ? "#10b981" : "#ef4444",
+              boxShadow: connected ? "0 0 0 3px rgba(16,185,129,0.2)" : "0 0 0 3px rgba(239,68,68,0.2)",
+            }} />
+            <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>
+              {connected ? "LIVE" : "OFFLINE"}
+            </span>
+          </div>
+          <a
+            href="/"
+            style={{
+              padding: "7px 14px",
+              background: "linear-gradient(135deg, #3b82f6, #2563eb)",
+              color: "white",
+              border: "none",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 500,
+              textDecoration: "none",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+            }}
+          >
+            Open CollabBoard
+          </a>
+        </div>
+      ) : (
+        /* Full editing toolbar */
+        <>
+      <div style={{
+        position: "absolute",
+        top: 16,
+        left: 16,
         right: 16,
-        display: "flex", 
-        alignItems: "center", 
-        gap: 8, 
-        background: "linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(250,250,250,0.98))", 
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        background: "linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(250,250,250,0.98))",
         backdropFilter: "blur(10px)",
-        padding: "10px 16px", 
-        borderRadius: 12, 
-        boxShadow: "0 4px 20px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.05)", 
+        padding: "10px 16px",
+        borderRadius: 12,
+        boxShadow: "0 4px 20px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.05)",
         border: "1px solid rgba(0,0,0,0.06)",
-        zIndex: 10 
+        zIndex: 10
       }}>
         <button
           onClick={() => navigate("/dashboard")}
-          style={{ 
-            padding: "7px 14px", 
-            background: "linear-gradient(135deg, #6b7280, #4b5563)", 
-            color: "white", 
-            border: "none", 
-            borderRadius: 8, 
+          style={{
+            padding: "7px 14px",
+            background: "linear-gradient(135deg, #6b7280, #4b5563)",
+            color: "white",
+            border: "none",
+            borderRadius: 8,
             cursor: "pointer",
             fontSize: 13,
             fontWeight: 500,
@@ -174,17 +270,17 @@ export function BoardRoom() {
         >
           ← Back
         </button>
-        
+
         <div style={{ width: 1, height: 24, background: "rgba(0,0,0,0.1)" }} />
-        
+
         <button
           onClick={() => setShowInviteModal(true)}
-          style={{ 
-            padding: "7px 14px", 
-            background: "linear-gradient(135deg, #10b981, #059669)", 
-            color: "white", 
-            border: "none", 
-            borderRadius: 8, 
+          style={{
+            padding: "7px 14px",
+            background: "linear-gradient(135deg, #10b981, #059669)",
+            color: "white",
+            border: "none",
+            borderRadius: 8,
             cursor: "pointer",
             fontSize: 13,
             fontWeight: 500,
@@ -194,13 +290,33 @@ export function BoardRoom() {
           onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-1px)"}
           onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}
         >
-          ✨ Invite
+          Invite
         </button>
-        
+
+        <button
+          onClick={() => setShowShareModal(true)}
+          style={{
+            padding: "7px 14px",
+            background: "linear-gradient(135deg, #3b82f6, #2563eb)",
+            color: "white",
+            border: "none",
+            borderRadius: 8,
+            cursor: "pointer",
+            fontSize: 13,
+            fontWeight: 500,
+            transition: "all 0.2s",
+            boxShadow: "0 2px 4px rgba(59,130,246,0.2)"
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-1px)"}
+          onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}
+        >
+          Share
+        </button>
+
         <div style={{ width: 1, height: 24, background: "rgba(0,0,0,0.1)" }} />
-        
+
         <div style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6 }}>
-          {(["pan", "sticky", "rectangle", "circle", "line"] as const).map((t, index) => [
+          {(["pan", "sticky", "rectangle", "circle", "line", "drawing"] as const).map((t, index) => [
               <button
                 key={t}
                 data-testid={`tool-${t}`}
@@ -214,14 +330,16 @@ export function BoardRoom() {
                         ? "Click to add circle"
                         : t === "line"
                           ? "Click to add line"
-                          : "Click to add sticky note"
+                          : t === "drawing"
+                            ? "Click and drag to draw"
+                            : "Click to add sticky note"
                 }
-                style={{ 
-                  padding: "6px 12px", 
-                  background: tool === t ? "linear-gradient(135deg, #3b82f6, #2563eb)" : "white", 
-                  color: tool === t ? "white" : "#4b5563", 
-                  border: tool === t ? "none" : "1px solid rgba(0,0,0,0.08)", 
-                  borderRadius: 6, 
+                style={{
+                  padding: "6px 12px",
+                  background: tool === t ? "linear-gradient(135deg, #3b82f6, #2563eb)" : "white",
+                  color: tool === t ? "white" : "#4b5563",
+                  border: tool === t ? "none" : "1px solid rgba(0,0,0,0.08)",
+                  borderRadius: 6,
                   cursor: "pointer",
                   fontSize: 13,
                   fontWeight: tool === t ? 600 : 500,
@@ -240,14 +358,14 @@ export function BoardRoom() {
                 }}
               >
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 16 }}>{t === "pan" ? "✋" : t === "sticky" ? "📝" : t === "rectangle" ? "◻" : t === "circle" ? "⭕" : "⁄"}</span>
-                  <span>{t.charAt(0).toUpperCase() + t.slice(1)}</span>
+                  <span style={{ fontSize: 16 }}>{t === "pan" ? "✋" : t === "sticky" ? "📝" : t === "rectangle" ? "◻" : t === "circle" ? "⭕" : t === "drawing" ? "✏️" : "⁄"}</span>
+                  <span>{t === "drawing" ? "Draw" : t.charAt(0).toUpperCase() + t.slice(1)}</span>
                 </span>
               </button>,
-              index < 4 && <div key={`sep-${index}`} style={{ width: 1, height: 20, background: "rgba(0,0,0,0.06)" }} />
+              index < 5 && <div key={`sep-${index}`} style={{ width: 1, height: 20, background: "rgba(0,0,0,0.06)" }} />
           ].filter(Boolean))}
         </div>
-        
+
         <div style={{ width: 1, height: 24, background: "rgba(0,0,0,0.1)" }} />
 
         <div ref={bgPickerRef} style={{ position: "relative" }}>
@@ -447,12 +565,12 @@ export function BoardRoom() {
             ))}
             <button
               onClick={() => setSelectedStickyColor(getRandomStickyColor())}
-              style={{ 
-                padding: "4px 10px", 
-                fontSize: 11, 
-                background: "white", 
-                border: "1px solid rgba(0,0,0,0.1)", 
-                borderRadius: 6, 
+              style={{
+                padding: "4px 10px",
+                fontSize: 11,
+                background: "white",
+                border: "1px solid rgba(0,0,0,0.1)",
+                borderRadius: 6,
                 cursor: "pointer",
                 fontWeight: 500,
                 color: "#4b5563"
@@ -462,8 +580,66 @@ export function BoardRoom() {
             </button>
           </div>
         )}
-        
-        {(tool === "rectangle" || tool === "circle" || tool === "line") && (
+
+        {tool === "drawing" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6 }}>
+            <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>TYPE</span>
+            {([
+              { value: "pen" as const, label: "Pen", icon: "✏️" },
+              { value: "marker" as const, label: "Marker", icon: "🖊️" },
+              { value: "highlighter" as const, label: "Highlighter", icon: "🖍️" },
+            ]).map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setPenType(opt.value)}
+                style={{
+                  padding: "4px 8px",
+                  background: penType === opt.value ? "linear-gradient(135deg, #3b82f6, #2563eb)" : "white",
+                  color: penType === opt.value ? "white" : "#4b5563",
+                  border: penType === opt.value ? "none" : "1px solid rgba(0,0,0,0.08)",
+                  borderRadius: 5,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: penType === opt.value ? 600 : 500,
+                  transition: "all 0.15s",
+                }}
+              >
+                {opt.icon} {opt.label}
+              </button>
+            ))}
+            <div style={{ width: 1, height: 20, background: "rgba(0,0,0,0.1)" }} />
+            <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>WIDTH</span>
+            {[2, 4, 8, 16].map((w) => (
+              <button
+                key={w}
+                onClick={() => setPenStrokeWidth(w)}
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 6,
+                  background: penStrokeWidth === w ? "#3b82f6" : "white",
+                  border: penStrokeWidth === w ? "none" : "1px solid rgba(0,0,0,0.08)",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: 0,
+                  transition: "all 0.15s",
+                }}
+                title={`${w}px`}
+              >
+                <div style={{
+                  width: Math.min(w * 1.5, 18),
+                  height: Math.min(w * 1.5, 18),
+                  borderRadius: "50%",
+                  background: penStrokeWidth === w ? "white" : "#4b5563",
+                }} />
+              </button>
+            ))}
+          </div>
+        )}
+
+        {(tool === "rectangle" || tool === "circle" || tool === "line" || tool === "drawing") && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6 }}>
             <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>COLOR</span>
             {["#3b82f6", "#ef4444", "#22c55e", "#f59e0b", "#8b5cf6", "#ec4899"].map((color) => (
@@ -488,17 +664,17 @@ export function BoardRoom() {
             ))}
           </div>
         )}
-        
+
         {selectedIds.length > 0 && (
-          <button 
-            data-testid="delete-btn" 
+          <button
+            data-testid="delete-btn"
             onClick={() => { selectedIds.forEach((id) => deleteWithUndo(id)); setSelectedIds([]); }}
-            style={{ 
-              padding: "7px 14px", 
-              background: "linear-gradient(135deg, #ef4444, #dc2626)", 
-              color: "white", 
-              border: "none", 
-              borderRadius: 8, 
+            style={{
+              padding: "7px 14px",
+              background: "linear-gradient(135deg, #ef4444, #dc2626)",
+              color: "white",
+              border: "none",
+              borderRadius: 8,
               cursor: "pointer",
               fontSize: 13,
               fontWeight: 500,
@@ -539,10 +715,10 @@ export function BoardRoom() {
 
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <div style={{ 
-              width: 8, 
-              height: 8, 
-              borderRadius: "50%", 
+            <div style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
               background: connected ? "#10b981" : "#ef4444",
               boxShadow: connected ? "0 0 0 3px rgba(16,185,129,0.2)" : "0 0 0 3px rgba(239,68,68,0.2)"
             }} />
@@ -550,20 +726,23 @@ export function BoardRoom() {
               {connected ? "ONLINE" : "OFFLINE"}
             </span>
           </div>
-          
+
           <span style={{ fontSize: 12, color: "#6b7280" }}>{displayName}</span>
         </div>
       </div>
-      
-      <div style={{ 
-        position: "absolute", 
-        bottom: 20, 
-        left: 20, 
-        background: "linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,41,59,0.95))", 
+        </>
+      )}
+
+      {/* Presence indicator - shown in both modes */}
+      <div style={{
+        position: "absolute",
+        bottom: 20,
+        left: 20,
+        background: "linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,41,59,0.95))",
         backdropFilter: "blur(12px) saturate(180%)",
-        padding: "10px 16px", 
-        borderRadius: 50, 
-        fontSize: 13, 
+        padding: "10px 16px",
+        borderRadius: 50,
+        fontSize: 13,
         zIndex: 10,
         boxShadow: "0 4px 24px rgba(0,0,0,0.12), 0 0 0 1px rgba(255,255,255,0.1)",
         display: "flex",
@@ -573,10 +752,10 @@ export function BoardRoom() {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ position: "relative" }}>
-            <div style={{ 
-              width: 8, 
-              height: 8, 
-              borderRadius: "50%", 
+            <div style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
               background: "#10b981",
               boxShadow: "0 0 0 2px rgba(16,185,129,0.3)",
               animation: "pulse 2s infinite"
@@ -632,7 +811,7 @@ export function BoardRoom() {
       </div>
 
       {/* Invite Modal */}
-      {showInviteModal && (
+      {!readOnly && showInviteModal && (
         <div style={{
           position: "fixed",
           top: 0,
@@ -661,7 +840,7 @@ export function BoardRoom() {
             }}>
               Invite Others to Collaborate
             </h2>
-            
+
             <p style={{
               fontSize: "14px",
               color: "#718096",
@@ -669,7 +848,7 @@ export function BoardRoom() {
             }}>
               Share this code with others to let them join this room
             </p>
-            
+
             <div style={{
               background: "#f7fafc",
               border: "2px dashed #cbd5e0",
@@ -688,7 +867,7 @@ export function BoardRoom() {
                 {inviteCode || "Loading..."}
               </div>
             </div>
-            
+
             <div style={{ display: "flex", gap: "12px" }}>
               <button
                 onClick={() => {
@@ -726,7 +905,7 @@ export function BoardRoom() {
                 Close
               </button>
             </div>
-            
+
             <p style={{
               fontSize: "12px",
               color: "#a0aec0",
@@ -738,17 +917,29 @@ export function BoardRoom() {
           </div>
         </div>
       )}
-      <AIChat
-        callbacks={{ createObject, updateObject, deleteObject }}
-        stageRef={stageRef}
-        objects={objects}
-        initialPrompt={aiPrompt || undefined}
-        boardConnected={connected}
-        onInitialPromptConsumed={() => {
-          searchParams.delete('ai');
-          setSearchParams(searchParams, { replace: true });
-        }}
-      />
+
+      {/* Share Modal */}
+      {!readOnly && showShareModal && roomId && (
+        <ShareModal
+          roomId={roomId}
+          stageRef={stageRef}
+          onClose={() => setShowShareModal(false)}
+        />
+      )}
+
+      {!readOnly && (
+        <AIChat
+          callbacks={{ createObject, updateObject, deleteObject }}
+          stageRef={stageRef}
+          objects={objects}
+          initialPrompt={aiPrompt || undefined}
+          boardConnected={connected}
+          onInitialPromptConsumed={() => {
+            searchParams.delete('ai');
+            setSearchParams(searchParams, { replace: true });
+          }}
+        />
+      )}
     </div>
   );
 }

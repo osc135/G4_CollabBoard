@@ -21,6 +21,8 @@ export const textboxSchema = z.object({
   width: z.number().optional(),
   height: z.number().optional(),
   text: z.string(),
+  color: z.string().optional(),
+  fontSize: z.number().optional(),
   autoSize: z.boolean().optional(),
   rotation: z.number().optional(),
   zIndex: z.number().optional(),
@@ -55,12 +57,23 @@ export const connectorSchema = z.object({
   zIndex: z.number().optional(),
 });
 
-export const boardObjectSchema = z.union([stickyNoteSchema, textboxSchema, shapeSchema, connectorSchema]);
+export const drawingSchema = z.object({
+  id: z.string().min(1, "id required"),
+  type: z.literal("drawing"),
+  points: z.array(z.number()),   // flat [x0,y0,x1,y1,...] absolute canvas coords
+  color: z.string(),
+  strokeWidth: z.number(),
+  penType: z.enum(["pen", "marker", "highlighter"]).optional(),
+  zIndex: z.number().optional(),
+});
+
+export const boardObjectSchema = z.union([stickyNoteSchema, textboxSchema, shapeSchema, connectorSchema, drawingSchema]);
 
 export type StickyNote = z.infer<typeof stickyNoteSchema>;
 export type Textbox = z.infer<typeof textboxSchema>;
 export type Shape = z.infer<typeof shapeSchema>;
 export type Connector = z.infer<typeof connectorSchema>;
+export type Drawing = z.infer<typeof drawingSchema>;
 export type BoardObject = z.infer<typeof boardObjectSchema>;
 
 export const boardStateSchema = z.object({

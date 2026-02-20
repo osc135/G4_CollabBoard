@@ -13,7 +13,7 @@ interface Board {
 interface SupabaseBoardObject {
   id: string;
   board_id: string;
-  type: 'sticky' | 'rectangle' | 'circle' | 'textbox' | 'connector';
+  type: 'sticky' | 'rectangle' | 'circle' | 'textbox' | 'connector' | 'line' | 'drawing';
   x: number;
   y: number;
   width?: number;
@@ -31,6 +31,8 @@ interface SupabaseBoardObject {
   stroke_width?: number;
   arrow_end?: boolean;
   z_index?: number;
+  points?: number[];
+  pen_type?: string;
   created_at: string;
   updated_at: string;
 }
@@ -354,7 +356,18 @@ export class SupabaseBoardService {
         arrow_end: legacyObj.arrowEnd,
       };
     }
-    
+
+    if (legacyObj.type === 'drawing') {
+      return {
+        ...base,
+        x: 0,
+        y: 0,
+        points: legacyObj.points,
+        stroke_width: legacyObj.strokeWidth,
+        pen_type: legacyObj.penType,
+      };
+    }
+
     return {
       ...base,
       width: legacyObj.width,
@@ -379,6 +392,18 @@ export class SupabaseBoardService {
         color: supabaseObj.color,
         strokeWidth: supabaseObj.stroke_width,
         arrowEnd: supabaseObj.arrow_end,
+        ...(supabaseObj.z_index != null ? { zIndex: supabaseObj.z_index } : {}),
+      };
+    }
+
+    if (supabaseObj.type === 'drawing') {
+      return {
+        id: supabaseObj.id,
+        type: 'drawing',
+        points: supabaseObj.points || [],
+        color: supabaseObj.color,
+        strokeWidth: supabaseObj.stroke_width || 3,
+        penType: supabaseObj.pen_type || 'pen',
         ...(supabaseObj.z_index != null ? { zIndex: supabaseObj.z_index } : {}),
       };
     }
