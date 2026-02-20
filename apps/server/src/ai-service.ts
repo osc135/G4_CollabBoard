@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { Langfuse } from 'langfuse';
 import type { BoardObject } from '@collabboard/shared';
 import dotenv from 'dotenv';
@@ -102,9 +103,47 @@ function isBoardRelated(input: string): { allowed: boolean; reason?: string } {
   return { allowed: true };
 }
 
+// --- Task classifier: route simple tasks to GPT-4o, creative tasks to Anthropic ---
+function classifyTask(command: string): 'simple' | 'creative' {
+  const lower = command.toLowerCase().trim();
+
+  // Creative keywords take priority — these need spatial planning / artistic composition
+  const creativeKeywords = [
+    'draw', 'build', 'design', 'sketch', 'paint', 'compose',
+    'illustration', 'scene', 'picture',
+    // Named scenes / characters that require multi-object composition
+    'snowman', 'house', 'landscape', 'robot', 'dragon', 'castle', 'city',
+    'tree', 'flower', 'face', 'animal', 'car', 'person', 'monster',
+    'mountain', 'forest', 'building', 'diagram', 'flowchart', 'mindmap',
+    'mind map', 'bird', 'fish', 'cat', 'dog', 'sun', 'moon',
+    'pond', 'lake', 'river', 'ocean', 'sky', 'town',
+  ];
+
+  for (const keyword of creativeKeywords) {
+    if (lower.includes(keyword)) return 'creative';
+  }
+
+  // Long descriptive prompts with creative intent
+  const words = lower.split(/\s+/);
+  if (words.length > 15) {
+    // Check for creative intent signals in long prompts
+    const creativeSignals = ['with', 'and', 'that has', 'including', 'featuring', 'showing', 'of a', 'of the'];
+    const hasCreativeIntent = creativeSignals.some(s => lower.includes(s));
+    if (hasCreativeIntent) return 'creative';
+  }
+
+  // Everything else is simple — utility/CRUD operations
+  return 'simple';
+}
+
 // Initialize Anthropic client
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 // Initialize Langfuse client for observability
@@ -312,8 +351,18 @@ const tools: Anthropic.Tool[] = [
   },
 ];
 
+// Convert tools to OpenAI function-calling format
+const openaiTools: OpenAI.Chat.Completions.ChatCompletionTool[] = tools.map(t => ({
+  type: 'function' as const,
+  function: {
+    name: t.name,
+    description: t.description,
+    parameters: t.input_schema as Record<string, unknown>,
+  },
+}));
+
 // Export for testing
-export { isBoardRelated, REFUSAL_MESSAGE };
+export { isBoardRelated, classifyTask, REFUSAL_MESSAGE };
 
 export class AIService {
   private trace: any = null;
@@ -336,11 +385,16 @@ export class AIService {
         return { message: REFUSAL_MESSAGE };
       }
 
+      // Route based on task classification
+      const taskType = classifyTask(command);
+      const modelLabel = taskType === 'simple' ? 'gpt-4o' : 'claude-sonnet-4-6';
+
       // Start a new Langfuse trace
       this.trace = langfuse.trace({
         name: 'board-ai-command',
         userId,
         input: { command, objectCount: boardObjects.length },
+        metadata: { model: modelLabel, taskType },
       });
 
       // Create system message with board context
@@ -358,6 +412,13 @@ export class AIService {
       }).join('\n');
 
       const systemMessage = this.buildSystemMessage(boardObjects, objectSummary);
+
+      if (taskType === 'simple') {
+        console.log(`[AI Router] "${command.slice(0, 60)}" → GPT-4o (simple)`);
+        return await this.processWithOpenAI(command, boardObjects, objectSummary, systemMessage, history);
+      }
+
+      console.log(`[AI Router] "${command.slice(0, 60)}" → Anthropic Claude (creative)`);
 
       // Call Anthropic with tool use
       const generation = this.trace.generation({
@@ -431,29 +492,7 @@ export class AIService {
             arguments: args,
           });
 
-          // Build a tool result so the model knows what happened
-          let toolResult = `Done: ${toolUse.name}`;
-          if (toolUse.name === 'analyze_board') {
-            toolResult = `Board has ${boardObjects.length} objects.\n${objectSummary || '(empty)'}`;
-          } else if (toolUse.name === 'organize_board') {
-            toolResult = `Organized ${boardObjects.length} objects using "${args.strategy}" strategy.`;
-          } else if (toolUse.name === 'clear_board') {
-            toolResult = `Cleared all ${boardObjects.length} objects from the board.`;
-          } else if (toolUse.name === 'delete_object') {
-            toolResult = `Deleted object ${args.id}.`;
-          } else if (toolUse.name.startsWith('create_')) {
-            toolResult = `Created ${toolUse.name.replace('create_', '')} at (${args.x ?? 0}, ${args.y ?? 0}).`;
-          } else if (toolUse.name === 'move_object') {
-            toolResult = `Moved object ${args.id} to (${args.x}, ${args.y}).`;
-          } else if (toolUse.name === 'update_object') {
-            toolResult = `Updated object ${args.id}.`;
-          } else if (toolUse.name === 'bulk_update_objects') {
-            const filterCount = args.filter ? boardObjects.filter((o: any) => o.type === args.filter.type).length : 0;
-            const idCount = args.updates?.length ?? 0;
-            toolResult = args.filter
-              ? `Applied changes to all ${filterCount} ${args.filter.type} objects${idCount ? `, plus ${idCount} individual updates` : ''}.`
-              : `Updated ${idCount} objects.`;
-          }
+          const toolResult = this.buildToolResult(toolUse.name, args, boardObjects, objectSummary);
 
           toolResults.push({
             type: 'tool_result',
@@ -472,20 +511,12 @@ export class AIService {
         level: 'DEFAULT',
       });
 
-      await langfuse.flush();
+      langfuse.flush();
 
       // Generate a fallback message if the model didn't provide text
       let message = finalText;
       if (!message && actions.length > 0) {
-        const counts: Record<string, number> = {};
-        for (const a of actions) {
-          const name = a.tool.replace('create_', '').replace('_', ' ');
-          counts[name] = (counts[name] || 0) + 1;
-        }
-        const parts = Object.entries(counts).map(([name, count]) =>
-          count > 1 ? `${count} ${name}s` : `a ${name}`
-        );
-        message = `Here's ${parts.join(', ')}!`;
+        message = this.buildFallbackMessage(actions);
       } else if (!message) {
         message = "Sorry, I wasn't able to do that. I can create sticky notes, rectangles, circles, and lines on your board.";
       }
@@ -505,7 +536,7 @@ export class AIService {
           output: { error: errorMessage },
           level: 'ERROR',
         });
-        await langfuse.flush();
+        langfuse.flush();
       }
 
       return {
@@ -530,10 +561,15 @@ export class AIService {
       return;
     }
 
+    // Route based on task classification
+    const taskType = classifyTask(command);
+    const modelLabel = taskType === 'simple' ? 'gpt-4o' : 'claude-sonnet-4-6';
+
     this.trace = langfuse.trace({
       name: 'board-ai-command-stream',
       userId,
       input: { command, objectCount: boardObjects.length },
+      metadata: { model: modelLabel, taskType },
     });
 
     const objectSummary = boardObjects.map(o => {
@@ -548,8 +584,16 @@ export class AIService {
       return parts.join(' ');
     }).join('\n');
 
-    // Reuse the same system message builder (just inline it for the streaming path)
     const systemMessage = this.buildSystemMessage(boardObjects, objectSummary);
+
+    // Route to OpenAI for simple tasks
+    if (taskType === 'simple') {
+      console.log(`[AI Router] Stream: "${command.slice(0, 60)}" → GPT-4o (simple)`);
+      await this.processWithOpenAIStreaming(command, boardObjects, objectSummary, systemMessage, history, onAction, onText);
+      return;
+    }
+
+    console.log(`[AI Router] Stream: "${command.slice(0, 60)}" → Anthropic Claude (creative)`);
 
     const generation = this.trace.generation({
       name: 'anthropic-completion-stream',
@@ -618,28 +662,7 @@ export class AIService {
         // Stream action to client immediately
         onAction(action);
 
-        let toolResult = `Done: ${toolUse.name}`;
-        if (toolUse.name === 'analyze_board') {
-          toolResult = `Board has ${boardObjects.length} objects.\n${objectSummary || '(empty)'}`;
-        } else if (toolUse.name === 'organize_board') {
-          toolResult = `Organized ${boardObjects.length} objects using "${args.strategy}" strategy.`;
-        } else if (toolUse.name === 'clear_board') {
-          toolResult = `Cleared all ${boardObjects.length} objects from the board.`;
-        } else if (toolUse.name === 'delete_object') {
-          toolResult = `Deleted object ${args.id}.`;
-        } else if (toolUse.name.startsWith('create_')) {
-          toolResult = `Created ${toolUse.name.replace('create_', '')} at (${args.x ?? 0}, ${args.y ?? 0}).`;
-        } else if (toolUse.name === 'move_object') {
-          toolResult = `Moved object ${args.id} to (${args.x}, ${args.y}).`;
-        } else if (toolUse.name === 'update_object') {
-          toolResult = `Updated object ${args.id}.`;
-        } else if (toolUse.name === 'bulk_update_objects') {
-          const filterCount = args.filter ? boardObjects.filter((o: any) => o.type === args.filter.type).length : 0;
-          const idCount = args.updates?.length ?? 0;
-          toolResult = args.filter
-            ? `Applied changes to all ${filterCount} ${args.filter.type} objects${idCount ? `, plus ${idCount} individual updates` : ''}.`
-            : `Updated ${idCount} objects.`;
-        }
+        const toolResult = this.buildToolResult(toolUse.name, args, boardObjects, objectSummary);
 
         toolResults.push({
           type: 'tool_result',
@@ -660,7 +683,269 @@ export class AIService {
       output: { actionCount: actions.length },
       level: 'DEFAULT',
     });
-    await langfuse.flush();
+    langfuse.flush();
+  }
+
+  private async processWithOpenAI(
+    command: string,
+    boardObjects: BoardObject[],
+    objectSummary: string,
+    systemMessage: string,
+    history: { role: string; content: string }[] = [],
+  ): Promise<{ message: string; actions?: any[]; error?: string }> {
+    const generation = this.trace.generation({
+      name: 'openai-completion',
+      model: 'gpt-4o',
+      input: { command },
+    });
+
+    const priorMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = history
+      .slice(-20)
+      .map(m => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      }));
+
+    const MAX_TOOL_ITERATIONS = 15;
+    const actions: any[] = [];
+    const conversationMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemMessage },
+      ...priorMessages,
+      { role: 'user', content: command },
+    ];
+
+    let finalText = '';
+
+    for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        max_tokens: 1024,
+        messages: conversationMessages,
+        tools: openaiTools,
+        tool_choice: 'auto',
+        temperature: 0.7,
+      });
+
+      const choice = response.choices[0];
+
+      if (iteration === 0) {
+        generation.end({
+          output: choice.message,
+          usage: {
+            promptTokens: response.usage?.prompt_tokens,
+            completionTokens: response.usage?.completion_tokens,
+          },
+        });
+      }
+
+      // Accumulate text content
+      if (choice.message.content) {
+        finalText += (finalText ? ' ' : '') + choice.message.content;
+      }
+
+      // No tool calls — done
+      const toolCalls = choice.message.tool_calls;
+      if (!toolCalls || toolCalls.length === 0) break;
+
+      // Add assistant message to conversation
+      conversationMessages.push(choice.message);
+
+      // Process each tool call
+      for (const toolCall of toolCalls) {
+        if (toolCall.type !== 'function') continue;
+        const args = JSON.parse(toolCall.function.arguments);
+        actions.push({ tool: toolCall.function.name, arguments: args });
+
+        const toolResult = this.buildToolResult(toolCall.function.name, args, boardObjects, objectSummary);
+
+        conversationMessages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: toolResult,
+        });
+      }
+    }
+
+    this.trace.update({
+      output: { message: finalText, actionCount: actions.length },
+      level: 'DEFAULT',
+    });
+    langfuse.flush();
+
+    let message = finalText;
+    if (!message && actions.length > 0) {
+      message = this.buildFallbackMessage(actions);
+    } else if (!message) {
+      message = "Sorry, I wasn't able to do that. I can create sticky notes, rectangles, circles, and lines on your board.";
+    }
+
+    return { message, actions };
+  }
+
+  private async processWithOpenAIStreaming(
+    command: string,
+    boardObjects: BoardObject[],
+    objectSummary: string,
+    systemMessage: string,
+    history: { role: string; content: string }[] = [],
+    onAction: (action: { tool: string; arguments: any }) => void,
+    onText: (text: string) => void,
+  ): Promise<void> {
+    const generation = this.trace.generation({
+      name: 'openai-completion-stream',
+      model: 'gpt-4o',
+      input: { command },
+    });
+
+    const priorMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = history
+      .slice(-20)
+      .map(m => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      }));
+
+    const MAX_TOOL_ITERATIONS = 15;
+    const actions: any[] = [];
+    const conversationMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemMessage },
+      ...priorMessages,
+      { role: 'user', content: command },
+    ];
+
+    let firstIteration = true;
+
+    for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+      const stream = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        max_tokens: 1024,
+        messages: conversationMessages,
+        tools: openaiTools,
+        tool_choice: 'auto',
+        temperature: 0.7,
+        stream: true,
+      });
+
+      // Accumulate the streamed response
+      let contentText = '';
+      const toolCallAccumulators: Map<number, { id: string; name: string; arguments: string }> = new Map();
+      let promptTokens = 0;
+      let completionTokens = 0;
+
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta;
+        if (!delta) continue;
+
+        // Stream text content as it arrives
+        if (delta.content) {
+          contentText += delta.content;
+          onText(delta.content);
+        }
+
+        // Accumulate tool call deltas
+        if (delta.tool_calls) {
+          for (const toolCallDelta of delta.tool_calls) {
+            const idx = toolCallDelta.index;
+            if (!toolCallAccumulators.has(idx)) {
+              toolCallAccumulators.set(idx, { id: '', name: '', arguments: '' });
+            }
+            const acc = toolCallAccumulators.get(idx)!;
+            if (toolCallDelta.id) acc.id = toolCallDelta.id;
+            if (toolCallDelta.function?.name) acc.name = toolCallDelta.function.name;
+            if (toolCallDelta.function?.arguments) acc.arguments += toolCallDelta.function.arguments;
+          }
+        }
+
+        // Capture usage from the final chunk
+        if (chunk.usage) {
+          promptTokens = chunk.usage.prompt_tokens;
+          completionTokens = chunk.usage.completion_tokens;
+        }
+      }
+
+      if (firstIteration) {
+        firstIteration = false;
+        generation.end({
+          output: { content: contentText, tool_calls: [...toolCallAccumulators.values()] },
+          usage: { promptTokens, completionTokens },
+        });
+      }
+
+      // No tool calls — done
+      if (toolCallAccumulators.size === 0) break;
+
+      // Reconstruct the assistant message for conversation history
+      const assistantToolCalls = [...toolCallAccumulators.values()].map(tc => ({
+        id: tc.id,
+        type: 'function' as const,
+        function: { name: tc.name, arguments: tc.arguments },
+      }));
+      conversationMessages.push({
+        role: 'assistant',
+        content: contentText || null,
+        tool_calls: assistantToolCalls,
+      });
+
+      // Process completed tool calls and stream actions immediately
+      for (const tc of toolCallAccumulators.values()) {
+        const args = JSON.parse(tc.arguments);
+        const action = { tool: tc.name, arguments: args };
+        actions.push(action);
+
+        // Stream action to client immediately
+        onAction(action);
+
+        const toolResult = this.buildToolResult(tc.name, args, boardObjects, objectSummary);
+
+        conversationMessages.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          content: toolResult,
+        });
+      }
+    }
+
+    this.trace.update({
+      output: { actionCount: actions.length },
+      level: 'DEFAULT',
+    });
+    langfuse.flush();
+  }
+
+  private buildToolResult(toolName: string, args: any, boardObjects: BoardObject[], objectSummary: string): string {
+    if (toolName === 'analyze_board') {
+      return `Board has ${boardObjects.length} objects.\n${objectSummary || '(empty)'}`;
+    } else if (toolName === 'organize_board') {
+      return `Organized ${boardObjects.length} objects using "${args.strategy}" strategy.`;
+    } else if (toolName === 'clear_board') {
+      return `Cleared all ${boardObjects.length} objects from the board.`;
+    } else if (toolName === 'delete_object') {
+      return `Deleted object ${args.id}.`;
+    } else if (toolName.startsWith('create_')) {
+      return `Created ${toolName.replace('create_', '')} at (${args.x ?? 0}, ${args.y ?? 0}).`;
+    } else if (toolName === 'move_object') {
+      return `Moved object ${args.id} to (${args.x}, ${args.y}).`;
+    } else if (toolName === 'update_object') {
+      return `Updated object ${args.id}.`;
+    } else if (toolName === 'bulk_update_objects') {
+      const filterCount = args.filter ? boardObjects.filter((o: any) => o.type === args.filter.type).length : 0;
+      const idCount = args.updates?.length ?? 0;
+      return args.filter
+        ? `Applied changes to all ${filterCount} ${args.filter.type} objects${idCount ? `, plus ${idCount} individual updates` : ''}.`
+        : `Updated ${idCount} objects.`;
+    }
+    return `Done: ${toolName}`;
+  }
+
+  private buildFallbackMessage(actions: any[]): string {
+    const counts: Record<string, number> = {};
+    for (const a of actions) {
+      const name = a.tool.replace('create_', '').replace('_', ' ');
+      counts[name] = (counts[name] || 0) + 1;
+    }
+    const parts = Object.entries(counts).map(([name, count]) =>
+      count > 1 ? `${count} ${name}s` : `a ${name}`
+    );
+    return `Here's ${parts.join(', ')}!`;
   }
 
   private buildSystemMessage(boardObjects: BoardObject[], objectSummary: string): string {
