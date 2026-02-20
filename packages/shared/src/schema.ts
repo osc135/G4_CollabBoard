@@ -21,6 +21,8 @@ export const textboxSchema = z.object({
   width: z.number().optional(),
   height: z.number().optional(),
   text: z.string(),
+  color: z.string().optional(),
+  fontSize: z.number().optional(),
   autoSize: z.boolean().optional(),
   rotation: z.number().optional(),
   zIndex: z.number().optional(),

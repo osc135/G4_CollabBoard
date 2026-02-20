@@ -121,32 +121,46 @@ const aiRateLimiter = rateLimit({
   },
 });
 
-// API endpoint for AI commands
+// Streaming AI endpoint — sends actions as newline-delimited JSON
 app.post("/api/ai/command", aiRateLimiter, async (req, res) => {
   try {
     const { command, roomId = "default", history = [], objects = [] } = req.body;
     console.log("AI command received via API:", command, "for room:", roomId);
 
-    // Use objects from the client (Supabase is the source of truth)
-    // Fall back to server in-memory store if client didn't send objects
     const boardObjects = objects.length > 0 ? objects : getBoardState(roomId).objects;
-    const response = await aiService.processCommand(
+
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Transfer-Encoding", "chunked");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+
+    await aiService.processCommandStreaming(
       command,
       boardObjects,
       "api-user",
-      history
+      history,
+      (action) => {
+        res.write(JSON.stringify({ type: "action", action }) + "\n");
+      },
+      (text) => {
+        res.write(JSON.stringify({ type: "text", text }) + "\n");
+      },
     );
-    console.log("AI response:", response);
 
-    // Return response with actions — the client handles object creation
-    // via Supabase, which broadcasts to all users through realtime subscriptions
-    res.json(response);
+    res.write(JSON.stringify({ type: "done" }) + "\n");
+    res.end();
   } catch (error) {
     console.error("AI command error:", error);
-    res.status(500).json({
-      message: "Sorry, I encountered an error processing your request.",
-      error: error instanceof Error ? error.message : "Unknown error"
-    });
+    // If headers already sent, write error as NDJSON line
+    if (res.headersSent) {
+      res.write(JSON.stringify({ type: "error", message: "Sorry, I encountered an error processing your request." }) + "\n");
+      res.end();
+    } else {
+      res.status(500).json({
+        message: "Sorry, I encountered an error processing your request.",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
   }
 });
 
@@ -275,6 +289,20 @@ io.on("connection", (socket) => {
               zIndex: action.arguments.zIndex ?? 0,
             };
             addObject(roomId, line);
+          } else if (action.tool === 'create_text') {
+            const textObj = {
+              id: `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              type: 'textbox' as const,
+              x: defaultX(action.arguments),
+              y: defaultY(action.arguments),
+              text: action.arguments.text || '',
+              fontSize: action.arguments.fontSize || 48,
+              color: action.arguments.color || '#1a1a1a',
+              width: action.arguments.width,
+              rotation: 0,
+              zIndex: action.arguments.zIndex ?? 0,
+            };
+            addObject(roomId, textObj);
           }
           // organize_board, move_object, delete_object, clear_board, and analyze_board
           // are handled client-side where the viewport context and Supabase sync live.

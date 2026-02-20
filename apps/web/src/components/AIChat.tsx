@@ -64,15 +64,185 @@ export function AIChat({ callbacks, stageRef, objects = [], initialPrompt, board
     return { centerX: 400, centerY: 300, scale: 1 };
   };
 
-  const processAICommand = async (command: string): Promise<AIResponse> => {
+  // Process a single action from the AI, applying it to the board
+  const processAction = (action: { tool: string; arguments: any }, liveObjects: Map<string, any>, centerX: number, centerY: number) => {
+    if (!callbacks) return;
+    const args = action.arguments;
+    const offset = (val: number | undefined) => val ?? 0;
+
+    if (action.tool === 'create_sticky_note' && callbacks.createObject) {
+      const newObj = {
+        id: `sticky-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'sticky' as const,
+        x: centerX + offset(args.x),
+        y: centerY + offset(args.y),
+        width: 200,
+        height: 200,
+        rotation: 0,
+        text: args.text || '',
+        color: args.color || '#ffeb3b',
+        zIndex: args.zIndex ?? 0,
+      };
+      liveObjects.set(newObj.id, newObj);
+      callbacks.createObject(newObj);
+    } else if (action.tool === 'create_rectangle' && callbacks.createObject) {
+      const newObj = {
+        id: `rect-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'rectangle' as const,
+        x: centerX + offset(args.x),
+        y: centerY + offset(args.y),
+        width: args.width || 120,
+        height: args.height || 80,
+        color: args.color || '#2196f3',
+        rotation: 0,
+        zIndex: args.zIndex ?? 0,
+      };
+      liveObjects.set(newObj.id, newObj);
+      callbacks.createObject(newObj);
+    } else if (action.tool === 'create_circle' && callbacks.createObject) {
+      const size = args.size || 80;
+      const newObj = {
+        id: `circle-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'circle' as const,
+        x: centerX + offset(args.x),
+        y: centerY + offset(args.y),
+        width: size,
+        height: size,
+        color: args.color || '#4caf50',
+        rotation: 0,
+        zIndex: args.zIndex ?? 0,
+      };
+      liveObjects.set(newObj.id, newObj);
+      callbacks.createObject(newObj);
+    } else if (action.tool === 'create_text' && callbacks.createObject) {
+      const newObj = {
+        id: `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'textbox' as const,
+        x: centerX + offset(args.x),
+        y: centerY + offset(args.y),
+        text: args.text || '',
+        fontSize: args.fontSize || 48,
+        color: args.color || '#1a1a1a',
+        width: args.width,
+        rotation: 0,
+        zIndex: args.zIndex ?? 0,
+      };
+      liveObjects.set(newObj.id, newObj);
+      callbacks.createObject(newObj);
+    } else if (action.tool === 'create_line' && callbacks.createObject) {
+      const newObj = {
+        id: `line-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'line' as const,
+        x: centerX + offset(args.x),
+        y: centerY + offset(args.y),
+        width: args.width || 200,
+        height: args.height || 0,
+        color: args.color || '#333333',
+        rotation: 0,
+        zIndex: args.zIndex ?? 0,
+      };
+      liveObjects.set(newObj.id, newObj);
+      callbacks.createObject(newObj);
+    } else if (action.tool === 'organize_board' && callbacks.updateObject) {
+      const gap = 16;
+      const groupGap = 60;
+      const typeOrder = ['sticky', 'textbox', 'rectangle', 'circle', 'line'];
+      const groups: Record<string, any[]> = {};
+      for (const obj of liveObjects.values()) {
+        const key = obj.type || 'other';
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(obj);
+      }
+      const sortedKeys = Object.keys(groups).sort((a, b) =>
+        (typeOrder.indexOf(a) === -1 ? 99 : typeOrder.indexOf(a)) -
+        (typeOrder.indexOf(b) === -1 ? 99 : typeOrder.indexOf(b))
+      );
+      let cursorX = centerX - 300;
+      const baseY = centerY - 200;
+      for (const key of sortedKeys) {
+        const group = groups[key];
+        const cols = Math.min(Math.ceil(Math.sqrt(group.length)), 6);
+        const maxW = Math.max(...group.map((o: any) => o.width || 80));
+        const maxH = Math.max(...group.map((o: any) => o.height || 80));
+        const cellW = maxW + gap;
+        const cellH = maxH + gap;
+        group.forEach((obj: any, i: number) => {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          const updated = { ...obj, x: cursorX + col * cellW, y: baseY + row * cellH };
+          liveObjects.set(obj.id, updated);
+          callbacks.updateObject(updated);
+        });
+        cursorX += cols * cellW + groupGap;
+      }
+    } else if (action.tool === 'move_object' && callbacks.updateObject) {
+      const existing = liveObjects.get(args.id);
+      if (existing) {
+        const updated = { ...existing, x: centerX + offset(args.x), y: centerY + offset(args.y) };
+        liveObjects.set(args.id, updated);
+        callbacks.updateObject(updated);
+      }
+    } else if (action.tool === 'update_object' && callbacks.updateObject) {
+      const existing = liveObjects.get(args.id);
+      if (existing) {
+        const updated: any = { ...existing };
+        if (args.color !== undefined) updated.color = args.color;
+        if (args.text !== undefined) updated.text = args.text;
+        if (args.fontSize !== undefined) updated.fontSize = args.fontSize;
+        if (args.width !== undefined) updated.width = args.width;
+        if (args.height !== undefined) updated.height = args.height;
+        if (args.zIndex !== undefined) updated.zIndex = args.zIndex;
+        liveObjects.set(args.id, updated);
+        callbacks.updateObject(updated);
+      }
+    } else if (action.tool === 'bulk_update_objects' && callbacks.updateObject) {
+      if (args.filter) {
+        const { type: filterType, ...changes } = args.filter;
+        for (const [id, obj] of liveObjects) {
+          if (obj.type === filterType) {
+            const updated: any = { ...obj };
+            if (changes.color !== undefined) updated.color = changes.color;
+            if (changes.text !== undefined) updated.text = changes.text;
+            if (changes.width !== undefined) updated.width = changes.width;
+            if (changes.height !== undefined) updated.height = changes.height;
+            if (changes.zIndex !== undefined) updated.zIndex = changes.zIndex;
+            liveObjects.set(id, updated);
+            callbacks.updateObject(updated);
+          }
+        }
+      }
+      const updates = args.updates || [];
+      for (const upd of updates) {
+        const existing = liveObjects.get(upd.id);
+        if (existing) {
+          const updated: any = { ...existing };
+          if (upd.color !== undefined) updated.color = upd.color;
+          if (upd.text !== undefined) updated.text = upd.text;
+          if (upd.width !== undefined) updated.width = upd.width;
+          if (upd.height !== undefined) updated.height = upd.height;
+          if (upd.zIndex !== undefined) updated.zIndex = upd.zIndex;
+          liveObjects.set(upd.id, updated);
+          callbacks.updateObject(updated);
+        }
+      }
+    } else if (action.tool === 'delete_object' && callbacks.deleteObject) {
+      liveObjects.delete(args.id);
+      callbacks.deleteObject(args.id);
+    } else if (action.tool === 'clear_board' && callbacks.deleteObject) {
+      for (const id of liveObjects.keys()) {
+        callbacks.deleteObject(id);
+      }
+      liveObjects.clear();
+    }
+  };
+
+  const processAICommand = async (command: string, onStreamText?: (text: string) => void): Promise<AIResponse> => {
     try {
       const vp = getViewport();
       const apiBase = import.meta.env.VITE_API_URL || '';
       const response = await fetch(`${apiBase}/api/ai/command`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           command,
           roomId: window.location.pathname.split('/').pop(),
@@ -81,189 +251,70 @@ export function AIChat({ callbacks, stageRef, objects = [], initialPrompt, board
           objects,
         }),
       });
-      
-      const data: AIResponse = await response.json();
-      // Process actions locally if callbacks are provided
-      if (data.actions && callbacks) {
-        const { centerX, centerY } = getViewport();
-        // Offsets are in board coordinates — same units as object sizes — so add directly
-        const offset = (val: number | undefined) => val ?? 0;
 
-        // Track object state locally so later actions see changes from earlier ones
-        // (e.g. organize moves objects, then update_object changes color without reverting positions)
-        const liveObjects = new Map<string, any>();
-        for (const obj of objects) {
-          liveObjects.set(obj.id, { ...obj });
-        }
+      const { centerX, centerY } = getViewport();
+      const liveObjects = new Map<string, any>();
+      for (const obj of objects) {
+        liveObjects.set(obj.id, { ...obj });
+      }
 
-        for (const action of data.actions) {
-          const args = action.arguments;
-          if (action.tool === 'create_sticky_note' && callbacks.createObject) {
-            const newObj = {
-              id: `sticky-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              type: 'sticky' as const,
-              x: centerX + offset(args.x),
-              y: centerY + offset(args.y),
-              width: 200,
-              height: 200,
-              rotation: 0,
-              text: args.text || '',
-              color: args.color || '#ffeb3b',
-              zIndex: args.zIndex ?? 0,
-            };
-            liveObjects.set(newObj.id, newObj);
-            callbacks.createObject(newObj);
-          } else if (action.tool === 'create_rectangle' && callbacks.createObject) {
-            const newObj = {
-              id: `rect-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              type: 'rectangle' as const,
-              x: centerX + offset(args.x),
-              y: centerY + offset(args.y),
-              width: args.width || 120,
-              height: args.height || 80,
-              color: args.color || '#2196f3',
-              rotation: 0,
-              zIndex: args.zIndex ?? 0,
-            };
-            liveObjects.set(newObj.id, newObj);
-            callbacks.createObject(newObj);
-          } else if (action.tool === 'create_circle' && callbacks.createObject) {
-            const size = args.size || 80;
-            const newObj = {
-              id: `circle-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              type: 'circle' as const,
-              x: centerX + offset(args.x),
-              y: centerY + offset(args.y),
-              width: size,
-              height: size,
-              color: args.color || '#4caf50',
-              rotation: 0,
-              zIndex: args.zIndex ?? 0,
-            };
-            liveObjects.set(newObj.id, newObj);
-            callbacks.createObject(newObj);
-          } else if (action.tool === 'create_line' && callbacks.createObject) {
-            const newObj = {
-              id: `line-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              type: 'line' as const,
-              x: centerX + offset(args.x),
-              y: centerY + offset(args.y),
-              width: args.width || 200,
-              height: args.height || 0,
-              color: args.color || '#333333',
-              rotation: 0,
-              zIndex: args.zIndex ?? 0,
-            };
-            liveObjects.set(newObj.id, newObj);
-            callbacks.createObject(newObj);
-          } else if (action.tool === 'organize_board' && callbacks.updateObject) {
-            const gap = 16;
-            const groupGap = 60;
+      // Read the NDJSON stream line by line
+      const reader = response.body?.getReader();
+      if (!reader) {
+        return { message: 'Failed to connect to AI service.' };
+      }
 
-            // Always group by type — rectangles together, circles together, etc.
-            const typeOrder = ['sticky', 'rectangle', 'circle', 'line'];
-            const groups: Record<string, any[]> = {};
-            for (const obj of liveObjects.values()) {
-              const key = obj.type || 'other';
-              if (!groups[key]) groups[key] = [];
-              groups[key].push(obj);
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let fullText = '';
+      const allActions: any[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const event = JSON.parse(line);
+            if (event.type === 'action') {
+              allActions.push(event.action);
+              processAction(event.action, liveObjects, centerX, centerY);
+            } else if (event.type === 'text') {
+              fullText += (fullText ? ' ' : '') + event.text;
+              onStreamText?.(fullText);
+            } else if (event.type === 'error') {
+              return { message: event.message, error: event.message };
             }
-
-            // Sort groups by type order for consistent layout
-            const sortedKeys = Object.keys(groups).sort((a, b) =>
-              (typeOrder.indexOf(a) === -1 ? 99 : typeOrder.indexOf(a)) -
-              (typeOrder.indexOf(b) === -1 ? 99 : typeOrder.indexOf(b))
-            );
-
-            // Lay out groups left-to-right, wrapping each group into a compact grid
-            let cursorX = centerX - 300;
-            const baseY = centerY - 200;
-
-            for (const key of sortedKeys) {
-              const group = groups[key];
-              const cols = Math.min(Math.ceil(Math.sqrt(group.length)), 6);
-              const maxW = Math.max(...group.map((o: any) => o.width || 80));
-              const maxH = Math.max(...group.map((o: any) => o.height || 80));
-              const cellW = maxW + gap;
-              const cellH = maxH + gap;
-
-              group.forEach((obj: any, i: number) => {
-                const col = i % cols;
-                const row = Math.floor(i / cols);
-                const updated = { ...obj, x: cursorX + col * cellW, y: baseY + row * cellH };
-                liveObjects.set(obj.id, updated);
-                callbacks.updateObject(updated);
-              });
-
-              cursorX += cols * cellW + groupGap;
-            }
-          } else if (action.tool === 'move_object' && callbacks.updateObject) {
-            const existing = liveObjects.get(args.id);
-            if (existing) {
-              const updated = { ...existing, x: centerX + offset(args.x), y: centerY + offset(args.y) };
-              liveObjects.set(args.id, updated);
-              callbacks.updateObject(updated);
-            }
-          } else if (action.tool === 'update_object' && callbacks.updateObject) {
-            const existing = liveObjects.get(args.id);
-            if (existing) {
-              const updated: any = { ...existing };
-              if (args.color !== undefined) updated.color = args.color;
-              if (args.text !== undefined) updated.text = args.text;
-              if (args.width !== undefined) updated.width = args.width;
-              if (args.height !== undefined) updated.height = args.height;
-              if (args.zIndex !== undefined) updated.zIndex = args.zIndex;
-              liveObjects.set(args.id, updated);
-              callbacks.updateObject(updated);
-            }
-          } else if (action.tool === 'bulk_update_objects' && callbacks.updateObject) {
-            // Filter mode: apply same changes to all objects matching type
-            if (args.filter) {
-              const { type: filterType, ...changes } = args.filter;
-              for (const [id, obj] of liveObjects) {
-                if (obj.type === filterType) {
-                  const updated: any = { ...obj };
-                  if (changes.color !== undefined) updated.color = changes.color;
-                  if (changes.text !== undefined) updated.text = changes.text;
-                  if (changes.width !== undefined) updated.width = changes.width;
-                  if (changes.height !== undefined) updated.height = changes.height;
-                  if (changes.zIndex !== undefined) updated.zIndex = changes.zIndex;
-                  liveObjects.set(id, updated);
-                  callbacks.updateObject(updated);
-                }
-              }
-            }
-            // Individual updates (can override filter for specific objects)
-            const updates = args.updates || [];
-            for (const upd of updates) {
-              const existing = liveObjects.get(upd.id);
-              if (existing) {
-                const updated: any = { ...existing };
-                if (upd.color !== undefined) updated.color = upd.color;
-                if (upd.text !== undefined) updated.text = upd.text;
-                if (upd.width !== undefined) updated.width = upd.width;
-                if (upd.height !== undefined) updated.height = upd.height;
-                if (upd.zIndex !== undefined) updated.zIndex = upd.zIndex;
-                liveObjects.set(upd.id, updated);
-                callbacks.updateObject(updated);
-              }
-            }
-          } else if (action.tool === 'delete_object' && callbacks.deleteObject) {
-            liveObjects.delete(args.id);
-            callbacks.deleteObject(args.id);
-          } else if (action.tool === 'clear_board' && callbacks.deleteObject) {
-            for (const id of liveObjects.keys()) {
-              callbacks.deleteObject(id);
-            }
-            liveObjects.clear();
+          } catch {
+            // skip malformed lines
           }
         }
       }
-      
-      return data;
+
+      // Generate fallback message if none
+      if (!fullText && allActions.length > 0) {
+        const counts: Record<string, number> = {};
+        for (const a of allActions) {
+          const name = a.tool.replace('create_', '').replace('_', ' ');
+          counts[name] = (counts[name] || 0) + 1;
+        }
+        const parts = Object.entries(counts).map(([name, count]) =>
+          count > 1 ? `${count} ${name}s` : `a ${name}`
+        );
+        fullText = `Created ${parts.join(', ')}!`;
+      } else if (!fullText) {
+        fullText = "Sorry, I wasn't able to do that.";
+      }
+
+      return { message: fullText, actions: allActions };
     } catch (error) {
       console.error('AI command error:', error);
-      return { 
+      return {
         message: 'Sorry, I encountered an error processing your request.',
         error: error instanceof Error ? error.message : 'Unknown error'
       };
@@ -272,30 +323,34 @@ export function AIChat({ callbacks, stageRef, objects = [], initialPrompt, board
   
   const sendMessage = async () => {
     if (!inputText.trim() || isLoading) return;
-    
+
     const userMessage: Message = {
       id: Date.now().toString(),
       text: inputText,
       sender: 'user',
       timestamp: new Date()
     };
-    
+
     setMessages(prev => [...prev, userMessage]);
     const commandText = inputText;
     setInputText('');
     setIsLoading(true);
-    
+
+    // Add a placeholder AI message that updates as text streams in
+    const aiMsgId = (Date.now() + 1).toString();
+    setMessages(prev => [...prev, { id: aiMsgId, text: 'Thinking...', sender: 'ai' as const, timestamp: new Date() }]);
+
     console.log('Processing AI command:', commandText);
-    const response = await processAICommand(commandText);
-    
+    const response = await processAICommand(commandText, (streamedText) => {
+      setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: streamedText } : m));
+    });
+
     setIsLoading(false);
-    const aiMessage: Message = {
-      id: Date.now().toString(),
-      text: response.error ? `Error: ${response.error}` : response.message,
-      sender: 'ai',
-      timestamp: new Date()
-    };
-    setMessages(prev => [...prev, aiMessage]);
+    // Final update with complete message
+    setMessages(prev => prev.map(m => m.id === aiMsgId
+      ? { ...m, text: response.error ? `Error: ${response.error}` : response.message }
+      : m
+    ));
   };
   
   // Auto-trigger initial prompt (from "Build with AI" on dashboard)
@@ -314,19 +369,19 @@ export function AIChat({ callbacks, stageRef, objects = [], initialPrompt, board
         sender: 'user',
         timestamp: new Date()
       };
-      setMessages(prev => [...prev, userMessage]);
+      const aiMsgId = (Date.now() + 1).toString();
+      setMessages(prev => [...prev, userMessage, { id: aiMsgId, text: 'Thinking...', sender: 'ai' as const, timestamp: new Date() }]);
       setIsLoading(true);
 
-      const response = await processAICommand(initialPrompt);
+      const response = await processAICommand(initialPrompt, (streamedText) => {
+        setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: streamedText } : m));
+      });
 
       setIsLoading(false);
-      const aiMessage: Message = {
-        id: Date.now().toString(),
-        text: response.error ? `Error: ${response.error}` : response.message,
-        sender: 'ai',
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, aiMessage]);
+      setMessages(prev => prev.map(m => m.id === aiMsgId
+        ? { ...m, text: response.error ? `Error: ${response.error}` : response.message }
+        : m
+      ));
       onInitialPromptConsumed?.();
     }, 500);
 
@@ -538,21 +593,7 @@ export function AIChat({ callbacks, stageRef, objects = [], initialPrompt, board
                       </div>
                     </div>
                   ))}
-                  {isLoading && (
-                    <div style={{
-                      display: 'flex',
-                      justifyContent: 'flex-start'
-                    }}>
-                      <div style={{
-                        padding: '8px 12px',
-                        borderRadius: '8px',
-                        backgroundColor: '#f3f4f6',
-                        color: '#374151'
-                      }}>
-                        <span style={{ fontSize: '14px' }}>Thinking...</span>
-                      </div>
-                    </div>
-                  )}
+                  {/* Streaming text updates appear in the AI message bubble directly */}
                   <div ref={messagesEndRef} />
                 </>
               )}

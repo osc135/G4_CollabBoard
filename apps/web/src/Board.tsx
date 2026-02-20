@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from "react-dom";
 import { Stage, Layer, Rect, Circle, Line, Text, Group, Shape, Transformer } from "react-konva";
 import Konva from "konva";
-import type { BoardObject, Cursor, StickyNote, Shape as ShapeType } from "@collabboard/shared";
+import type { BoardObject, Cursor, StickyNote, Shape as ShapeType, Textbox as TextboxType } from "@collabboard/shared";
 
 export type Tool = "pan" | "sticky" | "rectangle" | "circle" | "line";
 export type BackgroundPattern =
@@ -1070,6 +1070,74 @@ const MemoLineObj = React.memo<MemoLineProps>(({
   );
 });
 
+// ============= Memoized Textbox =============
+
+interface MemoTextboxProps extends ObjectHandlers {
+  obj: TextboxType;
+  isSelected: boolean;
+  shapeRefs: React.MutableRefObject<Record<string, Konva.Group>>;
+}
+
+const MemoTextbox = React.memo<MemoTextboxProps>(({
+  obj, isSelected, shapeRefs,
+  onDragMove, onDragEnd, onSelect, onContextMenu, onTransform, onTransformEnd, onCursorMove,
+}) => {
+  const fontSize = obj.fontSize || 48;
+  const color = obj.color || '#1a1a1a';
+  const rot = obj.rotation ?? 0;
+
+  return (
+    <Group
+      key={obj.id}
+      ref={(el) => { if (el) shapeRefs.current[obj.id] = el; }}
+      x={obj.x}
+      y={obj.y}
+      rotation={rot}
+      draggable
+      onDragMove={(e) => {
+        onDragMove(obj.id, e.target.x(), e.target.y());
+        const stage = e.target.getStage();
+        if (stage) {
+          const point = stage.getRelativePointerPosition();
+          if (point) onCursorMove(point.x, point.y);
+        }
+      }}
+      onDragEnd={(e) => {
+        onDragEnd(obj.id, obj, e.target.x(), e.target.y(), e.target.rotation());
+        const stage = e.target.getStage();
+        if (stage) {
+          stage.setPointersPositions(e.evt);
+          const point = stage.getRelativePointerPosition();
+          if (point) onCursorMove(point.x, point.y);
+        }
+      }}
+      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onContextMenu={(e) => onContextMenu(e, obj.id)}
+      onTransform={(e) => {
+        const node = e.target;
+        onTransform(obj.id, node.x(), node.y(), node.rotation());
+      }}
+      onTransformEnd={(e) => {
+        const node = e.target;
+        onTransformEnd(obj as any, node.scaleX(), node.scaleY(), node.rotation(), node.x(), node.y());
+        node.scaleX(1);
+        node.scaleY(1);
+      }}
+    >
+      <Text
+        text={obj.text}
+        fontSize={fontSize}
+        fontFamily="system-ui, -apple-system, 'Segoe UI', sans-serif"
+        fontStyle="bold"
+        fill={isSelected ? '#3b82f6' : color}
+        wrap="word"
+        width={obj.width}
+        height={obj.height}
+      />
+    </Group>
+  );
+});
+
 // ============= Memoized Connector =============
 
 interface MemoConnectorProps {
@@ -1338,7 +1406,13 @@ export function Board({
   }, []);
 
   const stableOnTransformEnd = useCallback((obj: BoardObject, scaleX: number, scaleY: number, rotation: number, nodeX: number, nodeY: number) => {
-    if (obj.type === 'connector' || obj.type === 'textbox') return;
+    if (obj.type === 'connector') return;
+    if (obj.type === 'textbox') {
+      const newWidth = obj.width ? Math.max(20, obj.width * scaleX) : undefined;
+      const newHeight = obj.height ? Math.max(20, obj.height * scaleY) : undefined;
+      onObjectUpdateRef.current({ ...obj, x: nodeX, y: nodeY, width: newWidth, height: newHeight, rotation });
+      return;
+    }
     const minSize = obj.type === 'sticky' ? 50 : 20;
     const newWidth = Math.max(minSize, obj.width * scaleX);
     const newHeight = Math.max(minSize, obj.height * scaleY);
@@ -2263,6 +2337,24 @@ export function Board({
                 onTransformEnd={stableOnTransformEnd}
                 onCursorMove={stableOnCursorMove}
                 onLineUpdate={stableOnLineUpdate}
+              />
+            );
+          }
+          if (obj.type === "textbox") {
+            const textObj = obj as TextboxType;
+            return (
+              <MemoTextbox
+                key={obj.id}
+                obj={textObj}
+                isSelected={selectedIdsSet.has(obj.id)}
+                shapeRefs={shapeRefs}
+                onDragMove={stableOnDragMove}
+                onDragEnd={stableOnDragEnd}
+                onSelect={stableOnSelect}
+                onContextMenu={handleObjectContextMenu}
+                onTransform={stableOnTransform}
+                onTransformEnd={stableOnTransformEnd}
+                onCursorMove={stableOnCursorMove}
               />
             );
           }
