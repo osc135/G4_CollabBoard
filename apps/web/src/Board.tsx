@@ -18,8 +18,10 @@ interface BoardProps {
   onObjectUpdate: (obj: BoardObject) => void;
   onObjectDelete?: (id: string) => void;
   onCursorMove: (x: number, y: number) => void;
-  onObjectDrag?: (objectId: string, x: number, y: number) => void;
+  onObjectDrag?: (objectId: string, x: number, y: number, rotation?: number) => void;
   onObjectDragEnd?: (objectId: string, x: number, y: number) => void;
+  remoteSelections?: Record<string, { sessionId: string; selectedIds: string[] }>;
+  onTextEdit?: (objectId: string, text: string) => void;
   stageRef: React.RefObject<Konva.Stage | null>;
 }
 
@@ -201,10 +203,11 @@ function findObjectAtPoint(objects: BoardObject[], point: { x: number; y: number
 // ============= Stable callback types for memoized components =============
 
 interface ObjectHandlers {
-  onDragMove: (id: string, x: number, y: number) => void;
+  onDragMove: (id: string, x: number, y: number, rotation?: number) => void;
   onDragEnd: (id: string, obj: BoardObject, x: number, y: number, rotation: number) => void;
   onSelect: (id: string) => void;
   onContextMenu: (e: Konva.KonvaEventObject<PointerEvent>, id: string) => void;
+  onTransform: (id: string, x: number, y: number, rotation: number) => void;
   onTransformEnd: (obj: BoardObject, scaleX: number, scaleY: number, rotation: number, nodeX: number, nodeY: number) => void;
   onCursorMove: (x: number, y: number) => void;
 }
@@ -233,7 +236,7 @@ const CACHE_PIXEL_RATIO = Math.min(window.devicePixelRatio || 1, 2);
 const MemoStickyNote = React.memo<MemoStickyProps>(({
   obj, isSelected, isHovered, isDragging, isEditing, isConnectorTarget, scaleRef,
   shapeRefs, onDragMove, onStickyDragStart, onStickyDragEnd, onSelect, onContextMenu,
-  onDblClick, onHoverEnter, onHoverLeave, onTransformEnd, onCursorMove,
+  onDblClick, onHoverEnter, onHoverLeave, onTransform, onTransformEnd, onCursorMove,
 }) => {
   const scale = scaleRef.current;
   const w = obj.width;
@@ -288,6 +291,10 @@ const MemoStickyNote = React.memo<MemoStickyProps>(({
       onDblClick={(e) => { e.cancelBubble = true; onDblClick(obj.id, obj.text); }}
       onPointerEnter={() => onHoverEnter(obj.id)}
       onPointerLeave={() => onHoverLeave()}
+      onTransform={(e) => {
+        const node = e.target;
+        onTransform(obj.id, node.x() - w / 2, node.y() - h / 2, node.rotation());
+      }}
       onTransformEnd={(e) => {
         const node = e.target;
         onTransformEnd(obj, node.scaleX(), node.scaleY(), node.rotation(), node.x(), node.y());
@@ -437,7 +444,7 @@ interface MemoRectProps extends ObjectHandlers {
 
 const MemoRectangle = React.memo<MemoRectProps>(({
   obj, isSelected, isConnectorTarget, shapeRefs,
-  onDragMove, onDragEnd, onSelect, onContextMenu, onTransformEnd, onCursorMove,
+  onDragMove, onDragEnd, onSelect, onContextMenu, onTransform, onTransformEnd, onCursorMove,
 }) => {
   const w = obj.width;
   const h = obj.height;
@@ -485,6 +492,10 @@ const MemoRectangle = React.memo<MemoRectProps>(({
           if (point) onCursorMove(point.x, point.y);
         }
       }}
+      onTransform={(e) => {
+        const node = e.target;
+        onTransform(obj.id, node.x() - w / 2, node.y() - h / 2, node.rotation());
+      }}
       onTransformEnd={(e) => {
         const node = e.target;
         onTransformEnd(obj, node.scaleX(), node.scaleY(), node.rotation(), node.x(), node.y());
@@ -525,7 +536,7 @@ interface MemoCircleProps extends ObjectHandlers {
 
 const MemoCircleObj = React.memo<MemoCircleProps>(({
   obj, isSelected, isConnectorTarget, shapeRefs,
-  onDragMove, onDragEnd, onSelect, onContextMenu, onTransformEnd, onCursorMove,
+  onDragMove, onDragEnd, onSelect, onContextMenu, onTransform, onTransformEnd, onCursorMove,
 }) => {
   const w = obj.width;
   const h = obj.height;
@@ -574,6 +585,10 @@ const MemoCircleObj = React.memo<MemoCircleProps>(({
           if (point) onCursorMove(point.x, point.y);
         }
       }}
+      onTransform={(e) => {
+        const node = e.target;
+        onTransform(obj.id, node.x() - w / 2, node.y() - h / 2, node.rotation());
+      }}
       onTransformEnd={(e) => {
         const node = e.target;
         onTransformEnd(obj, node.scaleX(), node.scaleY(), node.rotation(), node.x(), node.y());
@@ -612,7 +627,7 @@ interface MemoLineProps extends ObjectHandlers {
 
 const MemoLineObj = React.memo<MemoLineProps>(({
   obj, isSelected, shapeRefs,
-  onDragMove, onDragEnd, onSelect, onContextMenu, onCursorMove, onLineUpdate,
+  onDragMove, onDragEnd, onSelect, onContextMenu, onTransform, onCursorMove, onLineUpdate,
 }) => {
   const w = obj.width;
   const h = obj.height;
@@ -657,6 +672,10 @@ const MemoLineObj = React.memo<MemoLineProps>(({
           const point = stage.getRelativePointerPosition();
           if (point) onCursorMove(point.x, point.y);
         }
+      }}
+      onTransform={(e) => {
+        const node = e.target;
+        onTransform(obj.id, node.x(), node.y(), node.rotation());
       }}
       onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
       onContextMenu={(e) => onContextMenu(e, obj.id)}
@@ -817,6 +836,8 @@ export function Board({
   onCursorMove,
   onObjectDrag,
   onObjectDragEnd,
+  remoteSelections = {},
+  onTextEdit,
   stageRef,
   selectedStickyColor,
   selectedShapeColor = "#3b82f6",
@@ -897,6 +918,21 @@ export function Board({
   // ============= O(1) selection lookup =============
   const selectedIdsSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
+  // ============= Remote selection color map (objectId → color) =============
+  const remoteSelectionMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    // Assign colors matching cursor order
+    const cursorSessionIds = Object.keys(cursors);
+    for (const [remoteSessionId, sel] of Object.entries(remoteSelections)) {
+      const colorIndex = cursorSessionIds.indexOf(remoteSessionId);
+      const color = getCursorColor(colorIndex >= 0 ? colorIndex : Object.keys(remoteSelections).indexOf(remoteSessionId));
+      for (const objId of sel.selectedIds) {
+        map[objId] = color;
+      }
+    }
+    return map;
+  }, [remoteSelections, cursors]);
+
   // ============= Throttled drag state (connectors only need ~15fps) =============
   const draggingObjectRef = useRef<{ id: string; x: number; y: number } | null>(null);
   const dragRafRef = useRef<number | null>(null);
@@ -914,6 +950,10 @@ export function Board({
     }
     onObjectDragRef.current?.(id, x, y);
   }, [flushDragState]);
+
+  const stableOnTransform = useCallback((id: string, x: number, y: number, rotation: number) => {
+    onObjectDragRef.current?.(id, x, y, rotation);
+  }, []);
 
   const stableOnDragEnd = useCallback((id: string, obj: BoardObject, x: number, y: number, rotation: number) => {
     draggingObjectRef.current = null;
@@ -1616,7 +1656,10 @@ export function Board({
           <textarea
             ref={stickyInputRef}
             value={editingStickyText}
-            onChange={(e) => setEditingStickyText(e.target.value)}
+            onChange={(e) => {
+              setEditingStickyText(e.target.value);
+              if (editingStickyId && onTextEdit) onTextEdit(editingStickyId, e.target.value);
+            }}
             onBlur={handleStickyBlur}
             onInput={(e) => {
               // Auto-resize sticky note based on content
@@ -1784,6 +1827,7 @@ export function Board({
                 onDblClick={stableOnStickyDblClick}
                 onHoverEnter={stableOnStickyHoverEnter}
                 onHoverLeave={stableOnStickyHoverLeave}
+                onTransform={stableOnTransform}
                 onTransformEnd={stableOnTransformEnd}
                 onCursorMove={stableOnCursorMove}
               />
@@ -1802,6 +1846,7 @@ export function Board({
                 onDragEnd={stableOnDragEnd}
                 onSelect={stableOnSelect}
                 onContextMenu={handleObjectContextMenu}
+                onTransform={stableOnTransform}
                 onTransformEnd={stableOnTransformEnd}
                 onCursorMove={stableOnCursorMove}
               />
@@ -1820,6 +1865,7 @@ export function Board({
                 onDragEnd={stableOnDragEnd}
                 onSelect={stableOnSelect}
                 onContextMenu={handleObjectContextMenu}
+                onTransform={stableOnTransform}
                 onTransformEnd={stableOnTransformEnd}
                 onCursorMove={stableOnCursorMove}
               />
@@ -1837,6 +1883,7 @@ export function Board({
                 onDragEnd={stableOnDragEnd}
                 onSelect={stableOnSelect}
                 onContextMenu={handleObjectContextMenu}
+                onTransform={stableOnTransform}
                 onTransformEnd={stableOnTransformEnd}
                 onCursorMove={stableOnCursorMove}
                 onLineUpdate={stableOnLineUpdate}
@@ -1885,12 +1932,43 @@ export function Board({
             dash={[5, 5]}
           />
         )}
+        {/* Remote user selection highlights */}
+        {visibleObjects.map((obj) => {
+          const color = remoteSelectionMap[obj.id];
+          if (!color || obj.type === 'connector') return null;
+          const w = (obj as any).width ?? 0;
+          const h = (obj as any).height ?? 0;
+          const rot = (obj as any).rotation ?? 0;
+          const pad = 6;
+          const totalW = w + pad * 2;
+          const totalH = h + pad * 2;
+          // Use center pivot to match object rotation
+          const cx = obj.x + w / 2;
+          const cy = obj.y + h / 2;
+          return (
+            <Rect
+              key={`remote-sel-${obj.id}`}
+              x={cx}
+              y={cy}
+              offsetX={totalW / 2}
+              offsetY={totalH / 2}
+              width={totalW}
+              height={totalH}
+              rotation={rot}
+              stroke={color}
+              strokeWidth={2}
+              dash={[6, 4]}
+              cornerRadius={4}
+              listening={false}
+            />
+          );
+        })}
         {/* Standard Konva Transformer */}
         {selectedIds.length > 0 && (
           <Transformer
             ref={trRef}
             resizeEnabled={true}
-            rotateEnabled={false}
+            rotateEnabled={true}
             enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right']}
             anchorSize={8}
             anchorStroke="#3b82f6"

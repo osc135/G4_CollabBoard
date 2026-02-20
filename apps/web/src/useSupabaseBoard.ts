@@ -28,7 +28,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   const [cursors, setCursors] = useState<Record<string, Cursor>>({});
 
   // Ref-based remote drag buffering — avoids calling setObjects on every ~30fps drag event
-  const remoteDragRef = useRef<Record<string, { x: number; y: number }>>({});
+  const remoteDragRef = useRef<Record<string, { x: number; y: number; rotation?: number }>>({});
   const remoteDragRafRef = useRef<number | null>(null);
   const flushRemoteDrags = useCallback(() => {
     const drags = remoteDragRef.current;
@@ -38,13 +38,41 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
       let changed = false;
       const next = prev.map(obj => {
         const drag = drags[obj.id];
-        if (drag) { changed = true; return { ...obj, x: drag.x, y: drag.y }; }
+        if (drag) {
+          changed = true;
+          const update: any = { ...obj, x: drag.x, y: drag.y };
+          if (drag.rotation !== undefined) update.rotation = drag.rotation;
+          return update;
+        }
         return obj;
       });
       return changed ? next : prev;
     });
     remoteDragRef.current = {};
     remoteDragRafRef.current = null;
+  }, []);
+
+  // Ref-based remote text edit buffering
+  const remoteTextRef = useRef<Record<string, string>>({});
+  const remoteTextRafRef = useRef<number | null>(null);
+  const flushRemoteTexts = useCallback(() => {
+    const edits = remoteTextRef.current;
+    const ids = Object.keys(edits);
+    if (ids.length === 0) { remoteTextRafRef.current = null; return; }
+    setObjects(prev => {
+      let changed = false;
+      const next = prev.map(obj => {
+        const text = edits[obj.id];
+        if (text !== undefined && (obj as any).text !== text) {
+          changed = true;
+          return { ...obj, text } as any;
+        }
+        return obj;
+      });
+      return changed ? next : prev;
+    });
+    remoteTextRef.current = {};
+    remoteTextRafRef.current = null;
   }, []);
 
   // ============= Batch Supabase realtime events =============
@@ -114,6 +142,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     }
   }, [flushCursors]);
   const [presence, setPresence] = useState<{ userId: string; name: string }[]>([]);
+  const [remoteSelections, setRemoteSelections] = useState<Record<string, { sessionId: string; selectedIds: string[] }>>({});
   const [, setBoardId] = useState<string | null>(null);
   const boardIdRef = useRef<string | null>(null);
   const [presenceChannel, setPresenceChannel] = useState<any>(null);
@@ -175,7 +204,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
             // User joined
           })
           .on('presence', { event: 'leave' }, ({ leftPresences }) => {
-            // Remove cursors for users who left
+            // Remove cursors and selections for users who left
             setCursors(prev => {
               const newCursors = { ...prev };
               leftPresences.forEach((presence: any) => {
@@ -184,6 +213,15 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
                 }
               });
               return newCursors;
+            });
+            setRemoteSelections(prev => {
+              const next = { ...prev };
+              leftPresences.forEach((presence: any) => {
+                if (presence.sessionId) {
+                  delete next[presence.sessionId];
+                }
+              });
+              return next;
             });
           })
           // Add broadcast listener for real-time cursor updates
@@ -202,7 +240,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
           .on('broadcast', { event: 'object-drag' }, ({ payload }) => {
             // Buffer remote drag positions and flush once per frame
             if (payload.sessionId !== sessionId) {
-              remoteDragRef.current[payload.objectId] = { x: payload.x, y: payload.y };
+              remoteDragRef.current[payload.objectId] = { x: payload.x, y: payload.y, rotation: payload.rotation };
               if (!remoteDragRafRef.current) {
                 remoteDragRafRef.current = requestAnimationFrame(flushRemoteDrags);
               }
@@ -211,6 +249,22 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
           // Handle drag end to reset temporary states
           .on('broadcast', { event: 'object-drag-end' }, () => {
             // The actual database update will come through the regular subscription
+          })
+          .on('broadcast', { event: 'object-selection' }, ({ payload }) => {
+            if (payload.sessionId !== sessionId) {
+              setRemoteSelections(prev => ({
+                ...prev,
+                [payload.sessionId]: { sessionId: payload.sessionId, selectedIds: payload.selectedIds },
+              }));
+            }
+          })
+          .on('broadcast', { event: 'object-text-edit' }, ({ payload }) => {
+            if (payload.sessionId !== sessionId) {
+              remoteTextRef.current[payload.objectId] = payload.text;
+              if (!remoteTextRafRef.current) {
+                remoteTextRafRef.current = requestAnimationFrame(flushRemoteTexts);
+              }
+            }
           })
           .subscribe(async (status) => {
             if (status === 'SUBSCRIBED') {
@@ -333,15 +387,15 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     });
   }, [presenceChannel, sessionId, userId, displayName]);
 
-  const emitObjectDrag = useCallback((objectId: string, x: number, y: number) => {
+  const emitObjectDrag = useCallback((objectId: string, x: number, y: number, rotation?: number) => {
     if (!presenceChannel) return;
-    
+
     // Throttle drag events to 30fps (33ms)
     const now = Date.now();
     const lastEmit = dragThrottleRef.current[objectId] || 0;
     if (now - lastEmit < 33) return;
     dragThrottleRef.current[objectId] = now;
-    
+
     // Broadcast object drag position in real-time
     presenceChannel.httpSend('object-drag', {
       sessionId,
@@ -350,6 +404,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
       objectId,
       x,
       y,
+      rotation,
       timestamp: now
     }).catch((error: any) => {
       console.error('Failed to broadcast object drag:', error);
@@ -376,12 +431,42 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     });
   }, [presenceChannel, sessionId, userId, displayName]);
 
+  const emitTextEdit = useCallback((objectId: string, text: string) => {
+    if (!presenceChannel) return;
+
+    const now = Date.now();
+    const lastEmit = dragThrottleRef.current[`text-${objectId}`] || 0;
+    if (now - lastEmit < 33) return;
+    dragThrottleRef.current[`text-${objectId}`] = now;
+
+    presenceChannel.httpSend('object-text-edit', {
+      sessionId,
+      objectId,
+      text,
+    }).catch((error: any) => {
+      console.error('Failed to broadcast text edit:', error);
+    });
+  }, [presenceChannel, sessionId]);
+
+  const emitSelection = useCallback((selectedIds: string[]) => {
+    if (!presenceChannel) return;
+    presenceChannel.httpSend('object-selection', {
+      sessionId,
+      selectedIds,
+    }).catch((error: any) => {
+      console.error('Failed to broadcast selection:', error);
+    });
+  }, [presenceChannel, sessionId]);
+
   return {
     connected,
     objects,
     cursors,
     presence,
+    remoteSelections,
     emitCursor,
+    emitSelection,
+    emitTextEdit,
     emitObjectDrag,
     emitObjectDragEnd,
     createObject,
