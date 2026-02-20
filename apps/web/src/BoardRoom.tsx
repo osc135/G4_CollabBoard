@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import type { BoardObject } from "@collabboard/shared";
-import { Board, type Tool, STICKY_COLORS, getRandomStickyColor } from "./Board";
+import { Board, type Tool, type BackgroundPattern, STICKY_COLORS, getRandomStickyColor } from "./Board";
 import { useSupabaseBoard } from "./useSupabaseBoard";
 import { useAuth } from "./contexts/AuthContext";
 import { extractRoomCode } from "./utils/roomCode";
@@ -19,6 +19,10 @@ export function BoardRoom() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedStickyColor, setSelectedStickyColor] = useState<string>(STICKY_COLORS[0]);
   const [selectedShapeColor, setSelectedShapeColor] = useState<string>("#3b82f6");
+  const [backgroundPattern, setBackgroundPattern] = useState<BackgroundPattern>("dots");
+  const [bgColor, setBgColor] = useState("#f8fafc");
+  const [showBgPicker, setShowBgPicker] = useState(false);
+  const bgPickerRef = useRef<HTMLDivElement>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteCode, setInviteCode] = useState<string>("");
   const stageRef = useRef<Konva.Stage | null>(null);
@@ -85,6 +89,17 @@ export function BoardRoom() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedIds, deleteWithUndo, handleUndo]);
 
+  useEffect(() => {
+    if (!showBgPicker) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (bgPickerRef.current && !bgPickerRef.current.contains(e.target as Node)) {
+        setShowBgPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showBgPicker]);
+
   if (loading) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#1e293b" }}>
@@ -121,6 +136,8 @@ export function BoardRoom() {
         stageRef={stageRef}
         selectedStickyColor={selectedStickyColor}
         selectedShapeColor={selectedShapeColor}
+        backgroundPattern={backgroundPattern}
+        bgColor={bgColor}
       />
       <div style={{ 
         position: "absolute", 
@@ -231,8 +248,180 @@ export function BoardRoom() {
           ].filter(Boolean))}
         </div>
         
+        <div style={{ width: 1, height: 24, background: "rgba(0,0,0,0.1)" }} />
+
+        <div ref={bgPickerRef} style={{ position: "relative" }}>
+          <button
+            onClick={() => setShowBgPicker(!showBgPicker)}
+            style={{
+              padding: "6px 12px",
+              background: showBgPicker ? "linear-gradient(135deg, #3b82f6, #2563eb)" : "white",
+              color: showBgPicker ? "white" : "#4b5563",
+              border: showBgPicker ? "none" : "1px solid rgba(0,0,0,0.08)",
+              borderRadius: 6,
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 500,
+              transition: "all 0.2s",
+              boxShadow: showBgPicker ? "0 2px 8px rgba(59,130,246,0.3)" : "0 1px 2px rgba(0,0,0,0.05)",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+            onMouseEnter={(e) => { if (!showBgPicker) e.currentTarget.style.background = "#f9fafb"; }}
+            onMouseLeave={(e) => { if (!showBgPicker) e.currentTarget.style.background = "white"; }}
+          >
+            <span style={{ fontSize: 16 }}>🎨</span>
+            <span>Background</span>
+          </button>
+
+          {showBgPicker && (
+            <div style={{
+              position: "absolute",
+              top: "calc(100% + 8px)",
+              left: 0,
+              background: "white",
+              borderRadius: 12,
+              boxShadow: "0 8px 30px rgba(0,0,0,0.15), 0 2px 8px rgba(0,0,0,0.08)",
+              border: "1px solid rgba(0,0,0,0.08)",
+              padding: 16,
+              zIndex: 100,
+              width: 340,
+            }}>
+              {/* Background Color */}
+              <div style={{ marginBottom: 14 }}>
+                <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Background Color</span>
+                <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center", flexWrap: "wrap" }}>
+                  {["#f8fafc", "#ffffff", "#f1f5f9", "#e2e8f0", "#1e293b", "#0f172a", "#fef3c7", "#ecfccb", "#e0f2fe", "#fce7f3"].map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => setBgColor(color)}
+                      title={color}
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 6,
+                        background: color,
+                        border: bgColor === color ? "2px solid #3b82f6" : "1px solid rgba(0,0,0,0.12)",
+                        cursor: "pointer",
+                        padding: 0,
+                        transition: "all 0.15s",
+                        boxShadow: bgColor === color ? "0 0 0 3px rgba(59,130,246,0.3)" : "0 1px 2px rgba(0,0,0,0.08)",
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1)"}
+                      onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+                    />
+                  ))}
+                </div>
+                <label style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginTop: 8,
+                  padding: "6px 10px",
+                  background: "linear-gradient(135deg, #f0f9ff, #fdf2f8, #fefce8)",
+                  border: "1px solid rgba(0,0,0,0.1)",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                }}>
+                  <input
+                    type="color"
+                    value={bgColor}
+                    onChange={(e) => setBgColor(e.target.value)}
+                    style={{ width: 24, height: 24, border: "none", borderRadius: 4, cursor: "pointer", padding: 0 }}
+                  />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "#4b5563" }}>Custom Color</span>
+                  <span style={{ fontSize: 11, color: "#9ca3af", marginLeft: "auto" }}>{bgColor}</span>
+                </label>
+              </div>
+
+              <div style={{ height: 1, background: "rgba(0,0,0,0.06)", margin: "0 -16px 14px" }} />
+
+              {/* Patterns */}
+              <div style={{ marginBottom: 14 }}>
+                <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Pattern</span>
+                <div style={{ display: "flex", gap: 4, marginTop: 6, flexWrap: "wrap" }}>
+                  {([
+                    { value: "dots" as BackgroundPattern, label: "Dots", icon: "···" },
+                    { value: "lines" as BackgroundPattern, label: "Lines", icon: "╋" },
+                    { value: "grid" as BackgroundPattern, label: "Grid", icon: "▦" },
+                    { value: "blueprint" as BackgroundPattern, label: "Blueprint", icon: "📐" },
+                    { value: "isometric" as BackgroundPattern, label: "Isometric", icon: "◇" },
+                    { value: "hex" as BackgroundPattern, label: "Hex", icon: "⬡" },
+                    { value: "lined" as BackgroundPattern, label: "Lined", icon: "☰" },
+                    { value: "none" as BackgroundPattern, label: "None", icon: "◻" },
+                  ]).map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setBackgroundPattern(opt.value)}
+                      title={opt.label}
+                      style={{
+                        padding: "5px 10px",
+                        background: backgroundPattern === opt.value ? "linear-gradient(135deg, #3b82f6, #2563eb)" : "#f8fafc",
+                        color: backgroundPattern === opt.value ? "white" : "#4b5563",
+                        border: backgroundPattern === opt.value ? "none" : "1px solid rgba(0,0,0,0.06)",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        fontSize: 12,
+                        fontWeight: backgroundPattern === opt.value ? 600 : 500,
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      {opt.icon} {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ height: 1, background: "rgba(0,0,0,0.06)", margin: "0 -16px 14px" }} />
+
+              {/* Themes (these override both color + pattern) */}
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Themes</span>
+                  <span style={{ fontSize: 10, color: "#9ca3af" }}>overrides color + pattern</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginTop: 6 }}>
+                  {([
+                    { value: "space" as BackgroundPattern, label: "Space", color: "#1e1b4b", emoji: "🌌" },
+                    { value: "library" as BackgroundPattern, label: "Library", color: "#4e342e", emoji: "📚" },
+                    { value: "school" as BackgroundPattern, label: "School", color: "#2e7d32", emoji: "🏫" },
+                    { value: "ocean" as BackgroundPattern, label: "Ocean", color: "#0369a1", emoji: "🌊" },
+                    { value: "sunset" as BackgroundPattern, label: "Sunset", color: "#ea580c", emoji: "🌅" },
+                    { value: "cork" as BackgroundPattern, label: "Cork", color: "#c4956a", emoji: "📌" },
+                    { value: "nightcity" as BackgroundPattern, label: "Night City", color: "#1e293b", emoji: "🌃" },
+                    { value: "garden" as BackgroundPattern, label: "Garden", color: "#86efac", emoji: "🌿" },
+                    { value: "snowfall" as BackgroundPattern, label: "Snowfall", color: "#bae6fd", emoji: "❄️" },
+                  ]).map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => { setBackgroundPattern(opt.value); setShowBgPicker(false); }}
+                      style={{
+                        padding: "6px 8px",
+                        background: opt.color,
+                        color: ["garden", "snowfall", "cork"].includes(opt.value) ? "#1e293b" : "white",
+                        border: backgroundPattern === opt.value ? "2px solid #3b82f6" : "1px solid rgba(0,0,0,0.12)",
+                        borderRadius: 8,
+                        cursor: "pointer",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        transition: "all 0.15s",
+                        boxShadow: backgroundPattern === opt.value ? "0 0 0 3px rgba(59,130,246,0.3)" : "0 1px 3px rgba(0,0,0,0.1)",
+                        textAlign: "left" as const,
+                      }}
+                    >
+                      {opt.emoji} {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div style={{ flex: 1 }} />
-        
+
         {tool === "sticky" && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6 }}>
             <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>COLOR</span>

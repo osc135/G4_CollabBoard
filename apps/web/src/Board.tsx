@@ -5,6 +5,320 @@ import Konva from "konva";
 import type { BoardObject, Cursor, StickyNote, Shape as ShapeType } from "@collabboard/shared";
 
 export type Tool = "pan" | "sticky" | "rectangle" | "circle" | "line";
+export type BackgroundPattern =
+  | "dots" | "lines" | "grid" | "none"
+  | "blueprint" | "isometric" | "hex" | "lined"
+  | "space" | "library" | "school" | "ocean" | "sunset"
+  | "cork" | "nightcity" | "garden" | "snowfall";
+
+// SVG data URI helpers for themed backgrounds
+const svgDataUri = (svg: string) => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+
+const THEME_BACKGROUNDS: Record<string, { background: string; svg: (scale: number) => string; tileSize: number }> = {
+  space: {
+    background: "linear-gradient(135deg, #0f172a 0%, #1e1b4b 40%, #0f172a 100%)",
+    tileSize: 200,
+    svg: () => `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
+      <circle cx="20" cy="30" r="1.2" fill="white" opacity="0.9"/>
+      <circle cx="80" cy="15" r="0.8" fill="white" opacity="0.6"/>
+      <circle cx="150" cy="45" r="1.5" fill="#93c5fd" opacity="0.8"/>
+      <circle cx="45" cy="90" r="0.6" fill="white" opacity="0.5"/>
+      <circle cx="120" cy="80" r="1" fill="white" opacity="0.7"/>
+      <circle cx="170" cy="110" r="0.7" fill="#c4b5fd" opacity="0.6"/>
+      <circle cx="30" cy="140" r="1.3" fill="white" opacity="0.8"/>
+      <circle cx="95" cy="155" r="0.9" fill="#93c5fd" opacity="0.5"/>
+      <circle cx="160" cy="170" r="1.1" fill="white" opacity="0.7"/>
+      <circle cx="55" cy="180" r="0.5" fill="white" opacity="0.4"/>
+      <circle cx="130" cy="130" r="1.4" fill="#fde68a" opacity="0.6"/>
+      <circle cx="10" cy="70" r="0.7" fill="white" opacity="0.5"/>
+      <circle cx="185" cy="25" r="0.9" fill="#c4b5fd" opacity="0.7"/>
+      <circle cx="70" cy="60" r="0.4" fill="white" opacity="0.3"/>
+      <circle cx="110" cy="190" r="1" fill="white" opacity="0.6"/>
+    </svg>`,
+  },
+  library: {
+    background: "linear-gradient(180deg, #3e2723 0%, #4e342e 50%, #3e2723 100%)",
+    tileSize: 120,
+    svg: () => `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120">
+      <rect x="5" y="10" width="12" height="100" rx="1" fill="#5d4037" opacity="0.6"/>
+      <rect x="20" y="5" width="10" height="105" rx="1" fill="#6d4c41" opacity="0.5"/>
+      <rect x="33" y="15" width="14" height="95" rx="1" fill="#4e342e" opacity="0.7"/>
+      <rect x="50" y="8" width="11" height="102" rx="1" fill="#795548" opacity="0.5"/>
+      <rect x="64" y="12" width="13" height="98" rx="1" fill="#5d4037" opacity="0.6"/>
+      <rect x="80" y="5" width="10" height="105" rx="1" fill="#6d4c41" opacity="0.4"/>
+      <rect x="93" y="18" width="12" height="92" rx="1" fill="#4e342e" opacity="0.6"/>
+      <rect x="108" y="10" width="9" height="100" rx="1" fill="#795548" opacity="0.5"/>
+      <line x1="0" y1="110" x2="120" y2="110" stroke="#8d6e63" stroke-width="2" opacity="0.4"/>
+      <line x1="0" y1="5" x2="120" y2="5" stroke="#8d6e63" stroke-width="1.5" opacity="0.3"/>
+    </svg>`,
+  },
+  school: {
+    background: "linear-gradient(180deg, #1b5e20 0%, #2e7d32 30%, #1b5e20 100%)",
+    tileSize: 100,
+    svg: () => `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+      <line x1="0" y1="25" x2="100" y2="25" stroke="rgba(255,255,255,0.07)" stroke-width="0.5" stroke-dasharray="4,3"/>
+      <line x1="0" y1="50" x2="100" y2="50" stroke="rgba(255,255,255,0.07)" stroke-width="0.5" stroke-dasharray="4,3"/>
+      <line x1="0" y1="75" x2="100" y2="75" stroke="rgba(255,255,255,0.07)" stroke-width="0.5" stroke-dasharray="4,3"/>
+      <line x1="0" y1="100" x2="100" y2="100" stroke="rgba(255,255,255,0.1)" stroke-width="0.8"/>
+      <circle cx="15" cy="40" r="0.8" fill="rgba(255,255,255,0.12)"/>
+      <circle cx="70" cy="20" r="0.5" fill="rgba(255,255,255,0.08)"/>
+      <circle cx="50" cy="80" r="0.6" fill="rgba(255,255,255,0.1)"/>
+      <circle cx="85" cy="65" r="0.4" fill="rgba(255,255,255,0.06)"/>
+    </svg>`,
+  },
+  ocean: {
+    background: "linear-gradient(180deg, #0c4a6e 0%, #0369a1 40%, #0e7490 70%, #0c4a6e 100%)",
+    tileSize: 160,
+    svg: () => `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160">
+      <path d="M0,30 Q20,20 40,30 T80,30 T120,30 T160,30" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
+      <path d="M0,60 Q20,50 40,60 T80,60 T120,60 T160,60" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1.2"/>
+      <path d="M-10,90 Q15,80 40,90 T80,90 T120,90 T160,90" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="1.5"/>
+      <path d="M0,120 Q25,110 40,120 T80,120 T120,120 T160,120" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+      <path d="M-5,150 Q20,140 40,150 T80,150 T120,150 T160,150" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1.3"/>
+      <circle cx="130" cy="45" r="1" fill="rgba(255,255,255,0.06)"/>
+      <circle cx="30" cy="105" r="0.8" fill="rgba(255,255,255,0.05)"/>
+    </svg>`,
+  },
+  sunset: {
+    background: "linear-gradient(180deg, #1e1b4b 0%, #7c2d12 30%, #ea580c 60%, #fbbf24 90%)",
+    tileSize: 180,
+    svg: () => `<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180">
+      <circle cx="20" cy="25" r="0.8" fill="rgba(255,255,255,0.15)"/>
+      <circle cx="90" cy="15" r="0.6" fill="rgba(255,255,255,0.12)"/>
+      <circle cx="155" cy="30" r="1" fill="rgba(255,255,255,0.1)"/>
+      <circle cx="50" cy="10" r="0.5" fill="rgba(255,255,255,0.08)"/>
+      <circle cx="130" cy="20" r="0.4" fill="rgba(255,255,255,0.1)"/>
+      <path d="M0,140 Q30,130 60,140 T120,140 T180,140" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="1"/>
+      <path d="M0,160 Q25,150 50,160 T100,160 T150,160 T180,160" fill="none" stroke="rgba(0,0,0,0.05)" stroke-width="0.8"/>
+    </svg>`,
+  },
+  cork: {
+    background: "linear-gradient(135deg, #d4a574 0%, #c4956a 30%, #dbb58a 60%, #c9a070 100%)",
+    tileSize: 150,
+    svg: () => `<svg xmlns="http://www.w3.org/2000/svg" width="150" height="150">
+      <circle cx="25" cy="30" r="2" fill="rgba(0,0,0,0.08)"/>
+      <circle cx="75" cy="20" r="1.5" fill="rgba(0,0,0,0.06)"/>
+      <circle cx="120" cy="55" r="1.8" fill="rgba(0,0,0,0.07)"/>
+      <circle cx="40" cy="80" r="1.2" fill="rgba(0,0,0,0.05)"/>
+      <circle cx="100" cy="100" r="2.2" fill="rgba(0,0,0,0.08)"/>
+      <circle cx="15" cy="120" r="1" fill="rgba(0,0,0,0.04)"/>
+      <circle cx="135" cy="130" r="1.6" fill="rgba(0,0,0,0.06)"/>
+      <circle cx="60" cy="140" r="1.3" fill="rgba(0,0,0,0.05)"/>
+      <circle cx="90" cy="65" r="0.8" fill="rgba(255,255,255,0.06)"/>
+      <circle cx="50" cy="110" r="0.9" fill="rgba(255,255,255,0.05)"/>
+      <rect x="70" y="40" width="3" height="3" rx="1.5" fill="rgba(180,80,80,0.3)" transform="rotate(15,71.5,41.5)"/>
+      <rect x="30" cy="95" width="3" height="3" rx="1.5" fill="rgba(80,80,180,0.25)" transform="rotate(-10,31.5,96.5)"/>
+    </svg>`,
+  },
+  nightcity: {
+    background: "linear-gradient(180deg, #0f172a 0%, #1e293b 60%, #334155 100%)",
+    tileSize: 200,
+    svg: () => `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
+      <circle cx="30" cy="15" r="0.6" fill="white" opacity="0.4"/>
+      <circle cx="90" cy="10" r="0.4" fill="white" opacity="0.3"/>
+      <circle cx="160" cy="20" r="0.5" fill="white" opacity="0.35"/>
+      <rect x="10" y="100" width="25" height="100" fill="#1e293b" stroke="#475569" stroke-width="0.5"/>
+      <rect x="13" y="108" width="4" height="5" fill="#fbbf24" opacity="0.7"/>
+      <rect x="20" y="108" width="4" height="5" fill="#fbbf24" opacity="0.5"/>
+      <rect x="13" y="120" width="4" height="5" fill="#fbbf24" opacity="0.4"/>
+      <rect x="20" y="125" width="4" height="5" fill="#93c5fd" opacity="0.5"/>
+      <rect x="13" y="140" width="4" height="5" fill="#fbbf24" opacity="0.6"/>
+      <rect x="50" y="80" width="35" height="120" fill="#1e293b" stroke="#475569" stroke-width="0.5"/>
+      <rect x="55" y="88" width="5" height="6" fill="#fbbf24" opacity="0.6"/>
+      <rect x="64" y="88" width="5" height="6" fill="#93c5fd" opacity="0.4"/>
+      <rect x="73" y="88" width="5" height="6" fill="#fbbf24" opacity="0.5"/>
+      <rect x="55" y="102" width="5" height="6" fill="#fbbf24" opacity="0.3"/>
+      <rect x="64" y="102" width="5" height="6" fill="#fbbf24" opacity="0.7"/>
+      <rect x="73" y="105" width="5" height="6" fill="#93c5fd" opacity="0.5"/>
+      <rect x="55" y="118" width="5" height="6" fill="#fbbf24" opacity="0.5"/>
+      <rect x="64" y="122" width="5" height="6" fill="#fbbf24" opacity="0.4"/>
+      <rect x="55" y="140" width="5" height="6" fill="#93c5fd" opacity="0.3"/>
+      <rect x="73" y="138" width="5" height="6" fill="#fbbf24" opacity="0.6"/>
+      <rect x="100" y="120" width="20" height="80" fill="#1e293b" stroke="#475569" stroke-width="0.5"/>
+      <rect x="104" y="128" width="4" height="5" fill="#fbbf24" opacity="0.5"/>
+      <rect x="112" y="128" width="4" height="5" fill="#fbbf24" opacity="0.6"/>
+      <rect x="104" y="142" width="4" height="5" fill="#93c5fd" opacity="0.4"/>
+      <rect x="112" y="145" width="4" height="5" fill="#fbbf24" opacity="0.3"/>
+      <rect x="140" y="90" width="30" height="110" fill="#1e293b" stroke="#475569" stroke-width="0.5"/>
+      <rect x="145" y="98" width="5" height="6" fill="#fbbf24" opacity="0.6"/>
+      <rect x="155" y="98" width="5" height="6" fill="#fbbf24" opacity="0.4"/>
+      <rect x="145" y="112" width="5" height="6" fill="#93c5fd" opacity="0.5"/>
+      <rect x="155" y="115" width="5" height="6" fill="#fbbf24" opacity="0.7"/>
+      <rect x="145" y="130" width="5" height="6" fill="#fbbf24" opacity="0.3"/>
+      <rect x="155" y="132" width="5" height="6" fill="#fbbf24" opacity="0.5"/>
+      <rect x="180" y="140" width="20" height="60" fill="#1e293b" stroke="#475569" stroke-width="0.5"/>
+      <rect x="184" y="148" width="4" height="5" fill="#fbbf24" opacity="0.5"/>
+      <rect x="192" y="150" width="4" height="5" fill="#93c5fd" opacity="0.4"/>
+    </svg>`,
+  },
+  garden: {
+    background: "linear-gradient(180deg, #ecfccb 0%, #d9f99d 30%, #bef264 70%, #a3e635 100%)",
+    tileSize: 180,
+    svg: () => `<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180">
+      <ellipse cx="30" cy="40" rx="8" ry="5" fill="#22c55e" opacity="0.15" transform="rotate(-20,30,40)"/>
+      <ellipse cx="25" cy="38" rx="7" ry="4" fill="#16a34a" opacity="0.12" transform="rotate(15,25,38)"/>
+      <ellipse cx="120" cy="25" rx="9" ry="5" fill="#22c55e" opacity="0.13" transform="rotate(-35,120,25)"/>
+      <ellipse cx="115" cy="28" rx="7" ry="4" fill="#16a34a" opacity="0.1" transform="rotate(10,115,28)"/>
+      <path d="M28,45 Q28,55 28,60" stroke="#15803d" stroke-width="0.8" opacity="0.15" fill="none"/>
+      <path d="M118,32 Q120,42 119,48" stroke="#15803d" stroke-width="0.8" opacity="0.12" fill="none"/>
+      <circle cx="70" cy="80" r="3" fill="#f472b6" opacity="0.2"/>
+      <circle cx="68" cy="78" r="2" fill="#fb7185" opacity="0.15"/>
+      <circle cx="72" cy="82" r="1.5" fill="#f9a8d4" opacity="0.18"/>
+      <circle cx="150" cy="110" r="2.5" fill="#a78bfa" opacity="0.18"/>
+      <circle cx="148" cy="108" r="2" fill="#c4b5fd" opacity="0.14"/>
+      <ellipse cx="80" cy="140" rx="10" ry="6" fill="#22c55e" opacity="0.12" transform="rotate(25,80,140)"/>
+      <ellipse cx="160" cy="60" rx="6" ry="4" fill="#4ade80" opacity="0.1" transform="rotate(-15,160,60)"/>
+      <circle cx="40" cy="120" r="1" fill="#fbbf24" opacity="0.15"/>
+      <circle cx="130" cy="160" r="1.2" fill="#fbbf24" opacity="0.12"/>
+    </svg>`,
+  },
+  snowfall: {
+    background: "linear-gradient(180deg, #e0f2fe 0%, #bae6fd 40%, #e0f2fe 100%)",
+    tileSize: 160,
+    svg: () => `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160">
+      <circle cx="20" cy="25" r="2.5" fill="white" opacity="0.7"/>
+      <circle cx="80" cy="15" r="1.8" fill="white" opacity="0.5"/>
+      <circle cx="140" cy="35" r="3" fill="white" opacity="0.6"/>
+      <circle cx="50" cy="60" r="2" fill="white" opacity="0.4"/>
+      <circle cx="110" cy="55" r="1.5" fill="white" opacity="0.55"/>
+      <circle cx="30" cy="90" r="2.8" fill="white" opacity="0.5"/>
+      <circle cx="95" cy="85" r="2.2" fill="white" opacity="0.6"/>
+      <circle cx="150" cy="95" r="1.6" fill="white" opacity="0.45"/>
+      <circle cx="60" cy="120" r="2.5" fill="white" opacity="0.55"/>
+      <circle cx="125" cy="125" r="3.2" fill="white" opacity="0.5"/>
+      <circle cx="15" cy="145" r="1.8" fill="white" opacity="0.4"/>
+      <circle cx="90" cy="150" r="2" fill="white" opacity="0.6"/>
+      <path d="M20,25 L20,19 M20,25 L20,31 M20,25 L24,22 M20,25 L16,28 M20,25 L24,28 M20,25 L16,22" stroke="white" stroke-width="0.3" opacity="0.3"/>
+      <path d="M140,35 L140,28 M140,35 L140,42 M140,35 L145,32 M140,35 L135,38 M140,35 L145,38 M140,35 L135,32" stroke="white" stroke-width="0.4" opacity="0.25"/>
+      <path d="M125,125 L125,118 M125,125 L125,132 M125,125 L130,122 M125,125 L120,128 M125,125 L130,128 M125,125 L120,122" stroke="white" stroke-width="0.35" opacity="0.2"/>
+    </svg>`,
+  },
+};
+
+// Determine if a hex color is dark (for adapting pattern stroke colors)
+function isDark(hex: string): boolean {
+  const c = hex.replace("#", "");
+  const r = parseInt(c.substring(0, 2), 16);
+  const g = parseInt(c.substring(2, 4), 16);
+  const b = parseInt(c.substring(4, 6), 16);
+  return (r * 299 + g * 587 + b * 114) / 1000 < 128;
+}
+
+function getBackgroundStyle(pattern: BackgroundPattern, currentScale: number, pos: { x: number; y: number }, bgColor: string): Pick<React.CSSProperties, 'backgroundImage' | 'backgroundSize' | 'backgroundPosition' | 'backgroundColor'> {
+  const gridSize = 20 * currentScale;
+  const bgPos = `${pos.x % gridSize}px ${pos.y % gridSize}px`;
+  const dark = isDark(bgColor);
+  // Adaptive colors: light strokes on dark backgrounds, dark strokes on light
+  const stroke = dark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.25)";
+  const strokeLight = dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)";
+  const strokeMed = dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.15)";
+  const strokeHeavy = dark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.2)";
+
+  // Themed backgrounds (self-contained color + pattern)
+  const theme = THEME_BACKGROUNDS[pattern];
+  if (theme) {
+    const tileSize = theme.tileSize * currentScale;
+    const themeBgPos = `${pos.x % tileSize}px ${pos.y % tileSize}px`;
+    return {
+      backgroundImage: `${svgDataUri(theme.svg(currentScale))}, ${theme.background}`,
+      backgroundSize: `${tileSize}px ${tileSize}px, cover`,
+      backgroundPosition: `${themeBgPos}, center`,
+    };
+  }
+
+  // Pattern backgrounds (overlay on user-chosen bgColor)
+  switch (pattern) {
+    case "dots":
+      return {
+        backgroundImage: `radial-gradient(circle at ${currentScale}px ${currentScale}px, ${stroke} ${Math.max(0.5, currentScale * 0.8)}px, transparent 0)`,
+        backgroundSize: `${gridSize}px ${gridSize}px`,
+        backgroundPosition: bgPos,
+        backgroundColor: bgColor,
+      };
+    case "lines":
+      return {
+        backgroundImage: `
+          linear-gradient(${strokeLight} ${Math.max(0.5, currentScale * 0.5)}px, transparent 0),
+          linear-gradient(90deg, ${strokeLight} ${Math.max(0.5, currentScale * 0.5)}px, transparent 0)
+        `,
+        backgroundSize: `${gridSize}px ${gridSize}px`,
+        backgroundPosition: bgPos,
+        backgroundColor: bgColor,
+      };
+    case "grid":
+      return {
+        backgroundImage: `
+          linear-gradient(${strokeMed} ${Math.max(1, currentScale * 0.8)}px, transparent 0),
+          linear-gradient(90deg, ${strokeMed} ${Math.max(1, currentScale * 0.8)}px, transparent 0)
+        `,
+        backgroundSize: `${gridSize}px ${gridSize}px`,
+        backgroundPosition: bgPos,
+        backgroundColor: bgColor,
+      };
+    case "blueprint": {
+      const majorGrid = 100 * currentScale;
+      const minorGrid = 20 * currentScale;
+      const majorPos = `${pos.x % majorGrid}px ${pos.y % majorGrid}px`;
+      const minorPos = `${pos.x % minorGrid}px ${pos.y % minorGrid}px`;
+      return {
+        backgroundImage: `
+          linear-gradient(${strokeHeavy} ${Math.max(1, currentScale)}px, transparent 0),
+          linear-gradient(90deg, ${strokeHeavy} ${Math.max(1, currentScale)}px, transparent 0),
+          linear-gradient(${strokeLight} ${Math.max(0.5, currentScale * 0.5)}px, transparent 0),
+          linear-gradient(90deg, ${strokeLight} ${Math.max(0.5, currentScale * 0.5)}px, transparent 0)
+        `,
+        backgroundSize: `${majorGrid}px ${majorGrid}px, ${majorGrid}px ${majorGrid}px, ${minorGrid}px ${minorGrid}px, ${minorGrid}px ${minorGrid}px`,
+        backgroundPosition: `${majorPos}, ${majorPos}, ${minorPos}, ${minorPos}`,
+        backgroundColor: bgColor,
+      };
+    }
+    case "isometric": {
+      const isoSize = 40 * currentScale;
+      const isoPos = `${pos.x % isoSize}px ${pos.y % isoSize}px`;
+      return {
+        backgroundImage: `
+          linear-gradient(30deg, ${strokeLight} ${Math.max(0.5, currentScale * 0.4)}px, transparent 0),
+          linear-gradient(150deg, ${strokeLight} ${Math.max(0.5, currentScale * 0.4)}px, transparent 0),
+          linear-gradient(90deg, ${strokeLight} ${Math.max(0.5, currentScale * 0.4)}px, transparent 0)
+        `,
+        backgroundSize: `${isoSize}px ${isoSize}px`,
+        backgroundPosition: isoPos,
+        backgroundColor: bgColor,
+      };
+    }
+    case "hex": {
+      const hexSize = 60 * currentScale;
+      const hexPos = `${pos.x % hexSize}px ${pos.y % hexSize}px`;
+      const hexStroke = dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)";
+      const hexSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="60" height="52">
+        <path d="M30,2 L56,15 L56,37 L30,50 L4,37 L4,15 Z" fill="none" stroke="${hexStroke}" stroke-width="0.8"/>
+      </svg>`;
+      return {
+        backgroundImage: svgDataUri(hexSvg),
+        backgroundSize: `${hexSize}px ${hexSize * 52/60}px`,
+        backgroundPosition: hexPos,
+        backgroundColor: bgColor,
+      };
+    }
+    case "lined": {
+      const lineSpacing = 28 * currentScale;
+      const linePos = `0px ${pos.y % lineSpacing}px`;
+      const lineStroke = dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.1)";
+      return {
+        backgroundImage: `linear-gradient(${lineStroke} ${Math.max(0.5, currentScale * 0.5)}px, transparent 0)`,
+        backgroundSize: `100% ${lineSpacing}px`,
+        backgroundPosition: linePos,
+        backgroundColor: bgColor,
+      };
+    }
+    case "none":
+    default:
+      return {
+        backgroundImage: "none",
+        backgroundColor: bgColor,
+      };
+  }
+}
 
 interface BoardProps {
   objects: BoardObject[];
@@ -13,6 +327,8 @@ interface BoardProps {
   selectedIds: string[];
   selectedStickyColor?: string;
   selectedShapeColor?: string;
+  backgroundPattern?: BackgroundPattern;
+  bgColor?: string;
   onSelect: (ids: string[]) => void;
   onObjectCreate: (obj: BoardObject) => void;
   onObjectUpdate: (obj: BoardObject) => void;
@@ -870,6 +1186,8 @@ export function Board({
   stageRef,
   selectedStickyColor,
   selectedShapeColor = "#3b82f6",
+  backgroundPattern = "dots",
+  bgColor = "#f8fafc",
 }: BoardProps) {
   const [scale, setScale] = useState(1);
   const scaleRef = useRef(1);
@@ -1780,7 +2098,7 @@ export function Board({
 
   return (
     <>
-    <div 
+    <div
       ref={(el) => {
         if (el && stageRef.current) {
           const updateBackground = () => {
@@ -1788,13 +2106,14 @@ export function Board({
             if (stage) {
               const currentScale = stage.scaleX();
               const currentPos = { x: stage.x(), y: stage.y() };
-              const gridSize = 20 * currentScale;
-              el.style.backgroundSize = `${gridSize}px ${gridSize}px`;
-              el.style.backgroundPosition = `${currentPos.x % gridSize}px ${currentPos.y % gridSize}px`;
-              el.style.backgroundImage = `radial-gradient(circle at ${currentScale}px ${currentScale}px, rgba(0,0,0,0.25) ${Math.max(0.5, currentScale * 0.8)}px, transparent 0)`;
+              const bg = getBackgroundStyle(backgroundPattern, currentScale, currentPos, bgColor);
+              el.style.backgroundImage = bg.backgroundImage ?? "";
+              el.style.backgroundSize = bg.backgroundSize as string ?? "";
+              el.style.backgroundPosition = bg.backgroundPosition as string ?? "";
+              el.style.backgroundColor = bg.backgroundColor ?? "";
             }
           };
-          
+
           const stage = stageRef.current;
           if (stage) {
             updateBackground();
@@ -1809,14 +2128,10 @@ export function Board({
         left: 0,
         width: '100%',
         height: '100%',
-        backgroundImage: `
-          radial-gradient(circle at ${scale}px ${scale}px, rgba(0,0,0,0.25) ${Math.max(0.5, scale * 0.8)}px, transparent 0)
-        `,
-        backgroundSize: `${20 * scale}px ${20 * scale}px`,
-        backgroundPosition: `${position.x % (20 * scale)}px ${position.y % (20 * scale)}px`,
+        ...getBackgroundStyle(backgroundPattern, scale, position, bgColor),
         pointerEvents: 'none',
         zIndex: 0
-      }} 
+      }}
     />
     <Stage
       ref={stageRef as React.RefObject<Konva.Stage>}
