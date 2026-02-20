@@ -44,11 +44,14 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
   const [inviteCode, setInviteCode] = useState<string>("");
   const stageRef = useRef<Konva.Stage | null>(null);
 
-  const { connected, objects, cursors, presence, remoteSelections, remoteEditingMap, remoteDraggingIds, emitCursor, emitSelection, emitTextEdit, emitStickyLock, emitStickyUnlock, emitObjectDrag, emitObjectDragEnd, createObject, updateObject, deleteObject } = useSupabaseBoard(
+  const { connected, objects, cursors, presence, isOwner, isLocked, toggleLock, remoteSelections, remoteEditingMap, remoteDraggingIds, remoteDrawingPaths, emitCursor, emitSelection, emitTextEdit, emitStickyLock, emitStickyUnlock, emitObjectDrag, emitObjectDragEnd, emitObjectTransform, emitObjectTransformEnd, emitDrawingPath, emitDrawingEnd, createObject, updateObject, deleteObject } = useSupabaseBoard(
     userId,
     displayName,
     roomId
   );
+
+  // Non-owners are effectively read-only when the board is locked
+  const effectiveReadOnly = readOnly || (isLocked && !isOwner);
 
   // No-op callbacks for read-only mode
   const noop = useCallback(() => {}, []);
@@ -56,6 +59,8 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
   const noopStr = useCallback((_id: string) => {}, []);
   const noopDrag = useCallback((_id: string, _x: number, _y: number, _r?: number) => {}, []);
   const noopDragEnd = useCallback((_id: string, _x: number, _y: number) => {}, []);
+  const noopTransform = useCallback((_id: string, _x: number, _y: number, _w: number, _h: number, _r: number) => {}, []);
+  const noopTransformEnd = useCallback((_id: string) => {}, []);
   const noopTextEdit = useCallback((_id: string, _text: string) => {}, []);
   const noopCursor = useCallback((_x: number, _y: number) => {}, []);
 
@@ -81,9 +86,9 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
 
   // Broadcast selection changes to other users
   useEffect(() => {
-    if (readOnly) return;
+    if (effectiveReadOnly) return;
     emitSelection(selectedIds);
-  }, [selectedIds, emitSelection, readOnly]);
+  }, [selectedIds, emitSelection, effectiveReadOnly]);
 
   // Extract invite code from room ID
   useEffect(() => {
@@ -93,7 +98,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
   }, [roomId]);
 
   useEffect(() => {
-    if (readOnly) return;
+    if (effectiveReadOnly) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       const active = document.activeElement;
       const isInput = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" || (active as HTMLElement)?.isContentEditable;
@@ -114,7 +119,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedIds, deleteWithUndo, handleUndo, readOnly]);
+  }, [selectedIds, deleteWithUndo, handleUndo, effectiveReadOnly]);
 
   useEffect(() => {
     if (!showBgPicker) return;
@@ -148,21 +153,23 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
       <Board
         objects={objects}
         cursors={cursors}
-        tool={readOnly ? "pan" : tool}
-        selectedIds={readOnly ? [] : selectedIds}
-        onSelect={readOnly ? noop : setSelectedIds}
-        onObjectCreate={readOnly ? noopObj : createObject}
-        onObjectUpdate={readOnly ? noopObj : updateObject}
-        onObjectDelete={readOnly ? noopStr : deleteWithUndo}
-        onCursorMove={readOnly ? noopCursor : emitCursor}
-        onObjectDrag={readOnly ? noopDrag : emitObjectDrag}
-        onObjectDragEnd={readOnly ? noopDragEnd : emitObjectDragEnd}
+        tool={effectiveReadOnly ? "pan" : tool}
+        selectedIds={effectiveReadOnly ? [] : selectedIds}
+        onSelect={effectiveReadOnly ? noop : setSelectedIds}
+        onObjectCreate={effectiveReadOnly ? noopObj : createObject}
+        onObjectUpdate={effectiveReadOnly ? noopObj : updateObject}
+        onObjectDelete={effectiveReadOnly ? noopStr : deleteWithUndo}
+        onCursorMove={effectiveReadOnly ? noopCursor : emitCursor}
+        onObjectDrag={effectiveReadOnly ? noopDrag : emitObjectDrag}
+        onObjectDragEnd={effectiveReadOnly ? noopDragEnd : emitObjectDragEnd}
+        onObjectTransform={effectiveReadOnly ? noopTransform : emitObjectTransform}
+        onObjectTransformEnd={effectiveReadOnly ? noopTransformEnd : emitObjectTransformEnd}
         remoteSelections={remoteSelections}
         remoteEditingMap={remoteEditingMap}
         remoteDraggingIds={remoteDraggingIds}
-        onTextEdit={readOnly ? noopTextEdit : emitTextEdit}
-        onStickyLock={readOnly ? noopStr : emitStickyLock}
-        onStickyUnlock={readOnly ? noopStr : emitStickyUnlock}
+        onTextEdit={effectiveReadOnly ? noopTextEdit : emitTextEdit}
+        onStickyLock={effectiveReadOnly ? noopStr : emitStickyLock}
+        onStickyUnlock={effectiveReadOnly ? noopStr : emitStickyUnlock}
         stageRef={stageRef}
         selectedStickyColor={selectedStickyColor}
         selectedShapeColor={selectedShapeColor}
@@ -170,6 +177,9 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
         bgColor={bgColor}
         penType={penType}
         penStrokeWidth={penStrokeWidth}
+        onDrawingPath={emitDrawingPath}
+        onDrawingEnd={emitDrawingEnd}
+        remoteDrawingPaths={remoteDrawingPaths}
       />
 
       {readOnly ? (
@@ -313,9 +323,50 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
           Share
         </button>
 
+        {isOwner && (
+          <button
+            onClick={toggleLock}
+            style={{
+              padding: "7px 14px",
+              background: isLocked
+                ? "linear-gradient(135deg, #f59e0b, #d97706)"
+                : "linear-gradient(135deg, #6b7280, #4b5563)",
+              color: "white",
+              border: "none",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 500,
+              transition: "all 0.2s",
+              boxShadow: isLocked
+                ? "0 2px 4px rgba(245,158,11,0.3)"
+                : "0 2px 4px rgba(0,0,0,0.1)",
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-1px)"}
+            onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}
+            title={isLocked ? "Unlock board for collaborators" : "Lock board (view-only for others)"}
+          >
+            {isLocked ? "Unlock" : "Lock"}
+          </button>
+        )}
+
+        {!isOwner && isLocked && (
+          <span style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: "#d97706",
+            background: "rgba(245,158,11,0.1)",
+            padding: "5px 10px",
+            borderRadius: 6,
+            border: "1px solid rgba(245,158,11,0.2)",
+          }}>
+            LOCKED
+          </span>
+        )}
+
         <div style={{ width: 1, height: 24, background: "rgba(0,0,0,0.1)" }} />
 
-        <div style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6, opacity: effectiveReadOnly ? 0.5 : 1, pointerEvents: effectiveReadOnly ? "none" : "auto" }}>
           {(["pan", "sticky", "rectangle", "circle", "line", "drawing"] as const).map((t, index) => [
               <button
                 key={t}
@@ -811,7 +862,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
       </div>
 
       {/* Invite Modal */}
-      {!readOnly && showInviteModal && (
+      {!effectiveReadOnly && showInviteModal && (
         <div style={{
           position: "fixed",
           top: 0,
@@ -919,7 +970,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
       )}
 
       {/* Share Modal */}
-      {!readOnly && showShareModal && roomId && (
+      {!effectiveReadOnly && showShareModal && roomId && (
         <ShareModal
           roomId={roomId}
           stageRef={stageRef}
@@ -927,7 +978,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
         />
       )}
 
-      {!readOnly && (
+      {!effectiveReadOnly && (
         <AIChat
           callbacks={{ createObject, updateObject, deleteObject }}
           stageRef={stageRef}

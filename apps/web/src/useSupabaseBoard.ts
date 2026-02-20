@@ -23,6 +23,8 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   const [sessionId] = useState(() => `${userId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
 
   const [connected, setConnected] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
   const dragThrottleRef = useRef<{ [key: string]: number }>({});
   const [objects, setObjects] = useState<BoardObject[]>([]);
   const [cursors, setCursors] = useState<Record<string, Cursor>>({});
@@ -51,6 +53,30 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     remoteDragRef.current = {};
     remoteDragRafRef.current = null;
   }, []);
+
+  // Ref-based remote transform buffering
+  const remoteTransformRef = useRef<Record<string, { x: number; y: number; width: number; height: number; rotation: number }>>({});
+  const remoteTransformRafRef = useRef<number | null>(null);
+  const flushRemoteTransforms = useCallback(() => {
+    const transforms = remoteTransformRef.current;
+    const ids = Object.keys(transforms);
+    if (ids.length === 0) { remoteTransformRafRef.current = null; return; }
+    setObjects(prev => {
+      let changed = false;
+      const next = prev.map(obj => {
+        const t = transforms[obj.id];
+        if (t) {
+          changed = true;
+          return { ...obj, x: t.x, y: t.y, width: t.width, height: t.height, rotation: t.rotation } as any;
+        }
+        return obj;
+      });
+      return changed ? next : prev;
+    });
+    remoteTransformRef.current = {};
+    remoteTransformRafRef.current = null;
+  }, []);
+  const transformThrottleRef = useRef<{ [key: string]: number }>({});
 
   // Ref-based remote text edit buffering
   const remoteTextRef = useRef<Record<string, string>>({});
@@ -145,6 +171,7 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   const [remoteSelections, setRemoteSelections] = useState<Record<string, { sessionId: string; selectedIds: string[] }>>({});
   const [remoteEditingMap, setRemoteEditingMap] = useState<Record<string, { sessionId: string; name: string }>>({});
   const [remoteDraggingIds, setRemoteDraggingIds] = useState<Set<string>>(new Set());
+  const [remoteDrawingPaths, setRemoteDrawingPaths] = useState<Record<string, { points: number[]; color: string; strokeWidth: number; penType: string }>>({});
   const [, setBoardId] = useState<string | null>(null);
   const boardIdRef = useRef<string | null>(null);
   const [presenceChannel, setPresenceChannel] = useState<any>(null);
@@ -171,7 +198,9 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
 
         setBoardId(board.id);
         boardIdRef.current = board.id;
-        
+        setIsOwner(board.created_by === userId);
+        setIsLocked(!!(board as any).is_locked);
+
         // Convert Supabase objects to legacy format for compatibility
         const legacyObjects = board.objects.map((obj: any) => 
           SupabaseBoardService.convertToLegacyObject(obj)
@@ -267,6 +296,18 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
               });
             }
           })
+          .on('broadcast', { event: 'object-transform' }, ({ payload }) => {
+            if (payload.sessionId !== sessionId) {
+              remoteTransformRef.current[payload.objectId] = {
+                x: payload.x, y: payload.y,
+                width: payload.width, height: payload.height,
+                rotation: payload.rotation,
+              };
+              if (!remoteTransformRafRef.current) {
+                remoteTransformRafRef.current = requestAnimationFrame(flushRemoteTransforms);
+              }
+            }
+          })
           .on('broadcast', { event: 'object-selection' }, ({ payload }) => {
             if (payload.sessionId !== sessionId) {
               setRemoteSelections(prev => ({
@@ -297,6 +338,31 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
                   return next;
                 });
               }
+            }
+          })
+          .on('broadcast', { event: 'board-lock' }, ({ payload }) => {
+            setIsLocked(!!payload.locked);
+          })
+          .on('broadcast', { event: 'drawing-path' }, ({ payload }) => {
+            if (payload.sessionId !== sessionId) {
+              setRemoteDrawingPaths(prev => ({
+                ...prev,
+                [payload.sessionId]: {
+                  points: payload.points,
+                  color: payload.color,
+                  strokeWidth: payload.strokeWidth,
+                  penType: payload.penType,
+                },
+              }));
+            }
+          })
+          .on('broadcast', { event: 'drawing-end' }, ({ payload }) => {
+            if (payload.sessionId !== sessionId) {
+              setRemoteDrawingPaths(prev => {
+                const next = { ...prev };
+                delete next[payload.sessionId];
+                return next;
+              });
             }
           })
           .subscribe(async (status) => {
@@ -464,6 +530,29 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     });
   }, [presenceChannel, sessionId, userId, displayName]);
 
+  const emitObjectTransform = useCallback((objectId: string, x: number, y: number, width: number, height: number, rotation: number) => {
+    if (!presenceChannel) return;
+
+    const now = Date.now();
+    const lastEmit = transformThrottleRef.current[objectId] || 0;
+    if (now - lastEmit < 33) return;
+    transformThrottleRef.current[objectId] = now;
+
+    presenceChannel.httpSend('object-transform', {
+      sessionId,
+      objectId,
+      x, y, width, height, rotation,
+      timestamp: now
+    }).catch((error: any) => {
+      console.error('Failed to broadcast object transform:', error);
+    });
+  }, [presenceChannel, sessionId]);
+
+  const emitObjectTransformEnd = useCallback((objectId: string) => {
+    if (!presenceChannel) return;
+    delete transformThrottleRef.current[objectId];
+  }, [presenceChannel]);
+
   const emitTextEdit = useCallback((objectId: string, text: string) => {
     if (!presenceChannel) return;
 
@@ -515,11 +604,55 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     });
   }, [presenceChannel, sessionId]);
 
+  const drawingThrottleRef = useRef(0);
+  const emitDrawingPath = useCallback((points: number[], color: string, strokeWidth: number, penType: string) => {
+    if (!presenceChannel) return;
+    const now = Date.now();
+    if (now - drawingThrottleRef.current < 50) return; // ~20fps
+    drawingThrottleRef.current = now;
+    presenceChannel.httpSend('drawing-path', {
+      sessionId,
+      points,
+      color,
+      strokeWidth,
+      penType,
+    }).catch(() => {});
+  }, [presenceChannel, sessionId]);
+
+  const emitDrawingEnd = useCallback(() => {
+    if (!presenceChannel) return;
+    presenceChannel.httpSend('drawing-end', {
+      sessionId,
+    }).catch(() => {});
+  }, [presenceChannel, sessionId]);
+
+  const toggleLock = useCallback(async () => {
+    const bid = boardIdRef.current;
+    if (!bid) return;
+    const newLocked = !isLocked;
+    setIsLocked(newLocked);
+    try {
+      await SupabaseBoardService.setBoardLocked(bid, newLocked);
+      // Broadcast to other users
+      presenceChannelRef.current?.send({
+        type: 'broadcast',
+        event: 'board-lock',
+        payload: { locked: newLocked },
+      });
+    } catch (error) {
+      console.error('Failed to toggle lock:', error);
+      setIsLocked(!newLocked); // revert
+    }
+  }, [isLocked]);
+
   return {
     connected,
     objects,
     cursors,
     presence,
+    isOwner,
+    isLocked,
+    toggleLock,
     remoteSelections,
     remoteEditingMap,
     remoteDraggingIds,
@@ -530,6 +663,11 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     emitStickyUnlock,
     emitObjectDrag,
     emitObjectDragEnd,
+    emitObjectTransform,
+    emitObjectTransformEnd,
+    emitDrawingPath,
+    emitDrawingEnd,
+    remoteDrawingPaths,
     createObject,
     updateObject,
     deleteObject,
