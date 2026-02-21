@@ -172,6 +172,20 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   const [remoteEditingMap, setRemoteEditingMap] = useState<Record<string, { sessionId: string; name: string }>>({});
   const [remoteDraggingIds, setRemoteDraggingIds] = useState<Set<string>>(new Set());
   const [remoteDrawingPaths, setRemoteDrawingPaths] = useState<Record<string, { points: number[]; color: string; strokeWidth: number; penType: string }>>({});
+  const chatStorageKey = roomId ? `chat-messages-${roomId}` : null;
+  const [chatMessages, setChatMessages] = useState<Array<{
+    id: string;
+    text: string;
+    senderName: string;
+    senderId: string;
+    timestamp: number;
+  }>>(() => {
+    if (!chatStorageKey) return [];
+    try {
+      const stored = localStorage.getItem(chatStorageKey);
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  });
   const [, setBoardId] = useState<string | null>(null);
   const boardIdRef = useRef<string | null>(null);
   const [presenceChannel, setPresenceChannel] = useState<any>(null);
@@ -365,6 +379,21 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
               });
             }
           })
+          .on('broadcast', { event: 'chat-message' }, ({ payload }) => {
+            if (payload.sessionId !== sessionId) {
+              setChatMessages(prev => {
+                // Deduplicate by message ID (strict mode / reconnects can cause double delivery)
+                if (prev.some(m => m.id === payload.id)) return prev;
+                return [...prev, {
+                  id: payload.id,
+                  text: payload.text,
+                  senderName: payload.name,
+                  senderId: payload.userId,
+                  timestamp: payload.timestamp,
+                }];
+              });
+            }
+          })
           .subscribe(async (status) => {
             if (status === 'SUBSCRIBED') {
               // Track this user's presence (without cursor data)
@@ -411,8 +440,21 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
         presenceChannelRef.current = null;
         setPresenceChannel(null);
       }
+      // Clear chat localStorage when leaving the room (SPA navigation).
+      // This cleanup does NOT run on page reload, so messages persist across reloads.
+      if (chatStorageKey) {
+        localStorage.removeItem(chatStorageKey);
+      }
     };
   }, [roomId, userId, displayName]);
+
+  // Persist chat messages to localStorage on every change
+  useEffect(() => {
+    if (!chatStorageKey) return;
+    try {
+      localStorage.setItem(chatStorageKey, JSON.stringify(chatMessages));
+    } catch { /* storage full — ignore */ }
+  }, [chatMessages, chatStorageKey]);
 
 
   const createObject = useCallback(async (obj: BoardObject) => {
@@ -626,6 +668,28 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     }).catch(() => {});
   }, [presenceChannel, sessionId]);
 
+  const emitChatMessage = useCallback((text: string) => {
+    if (!presenceChannel) return;
+    const msg = {
+      id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      text,
+      senderName: displayName,
+      senderId: userId,
+      timestamp: Date.now(),
+    };
+    setChatMessages(prev => [...prev, msg]);
+    presenceChannel.send({
+      type: 'broadcast',
+      event: 'chat-message',
+      payload: {
+        sessionId,
+        userId,
+        name: displayName,
+        ...msg,
+      },
+    }).catch(console.error);
+  }, [presenceChannel, sessionId, userId, displayName]);
+
   const toggleLock = useCallback(async () => {
     const bid = boardIdRef.current;
     if (!bid) return;
@@ -668,6 +732,8 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     emitDrawingPath,
     emitDrawingEnd,
     remoteDrawingPaths,
+    chatMessages,
+    emitChatMessage,
     createObject,
     updateObject,
     deleteObject,
