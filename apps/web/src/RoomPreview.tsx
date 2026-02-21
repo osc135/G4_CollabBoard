@@ -59,16 +59,24 @@ export function RoomPreview({ roomId, width = 280, height = 180 }: RoomPreviewPr
     
     objects.forEach(obj => {
       if (obj.type === "connector") return;
-      
+
       const x = (obj as any).x || 0;
       const y = (obj as any).y || 0;
       const objWidth = (obj as any).width || 100;
       const objHeight = (obj as any).height || 100;
-      
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x + objWidth);
-      maxY = Math.max(maxY, y + objHeight);
+
+      // Rectangles and circles use (x, y) as center; stickies/textboxes use top-left
+      if (obj.type === "rectangle" || obj.type === "circle") {
+        minX = Math.min(minX, x - objWidth / 2);
+        minY = Math.min(minY, y - objHeight / 2);
+        maxX = Math.max(maxX, x + objWidth / 2);
+        maxY = Math.max(maxY, y + objHeight / 2);
+      } else {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x + objWidth);
+        maxY = Math.max(maxY, y + objHeight);
+      }
     });
 
     // Calculate scale to fit preview
@@ -116,9 +124,10 @@ export function RoomPreview({ roomId, width = 280, height = 180 }: RoomPreviewPr
           layer.add(text);
         }
       } else if (obj.type === "rectangle") {
+        // Rectangle (x, y) is center-based in Board.tsx rendering
         const rect = new Konva.Rect({
-          x: obj.x * scale + offsetX,
-          y: obj.y * scale + offsetY,
+          x: (obj.x - obj.width / 2) * scale + offsetX,
+          y: (obj.y - obj.height / 2) * scale + offsetY,
           width: obj.width * scale,
           height: obj.height * scale,
           stroke: obj.color,
@@ -127,9 +136,10 @@ export function RoomPreview({ roomId, width = 280, height = 180 }: RoomPreviewPr
         });
         layer.add(rect);
       } else if (obj.type === "circle") {
+        // Circle (x, y) is center-based in Board.tsx rendering
         const circle = new Konva.Ellipse({
-          x: obj.x * scale + offsetX + (obj.width * scale) / 2,
-          y: obj.y * scale + offsetY + (obj.height * scale) / 2,
+          x: obj.x * scale + offsetX,
+          y: obj.y * scale + offsetY,
           radiusX: (obj.width * scale) / 2,
           radiusY: (obj.height * scale) / 2,
           stroke: obj.color,

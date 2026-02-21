@@ -7,6 +7,7 @@ import { useAuth } from "./contexts/AuthContext";
 import { extractRoomCode } from "./utils/roomCode";
 import { AIChatContent } from "./components/AIChat";
 import { ShareModal } from "./components/ShareModal";
+import { BOARD_TEMPLATES } from "./templates";
 import Konva from "konva";
 
 function formatTimeAgo(timestamp: number): string {
@@ -28,6 +29,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const aiPrompt = searchParams.get('ai');
+  const templateParam = searchParams.get('template');
 
   // Stable viewer ID for read-only mode (persists across re-renders)
   const [viewerId] = useState(() => `viewer-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
@@ -277,6 +279,58 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
 
     return () => clearTimeout(timer);
   }, [aiPrompt, connected]);
+
+  // Auto-populate board from template
+  const templateFired = useRef(false);
+  useEffect(() => {
+    if (!templateParam || !connected || templateFired.current) return;
+    templateFired.current = true;
+
+    const template = BOARD_TEMPLATES.find(t => t.id === templateParam);
+    if (!template) return;
+
+    const timer = setTimeout(() => {
+      let centerX = 400, centerY = 300;
+      if (stageRef.current) {
+        const stage = stageRef.current;
+        const scale = stage.scaleX() || 1;
+        const pos = stage.position() || { x: 0, y: 0 };
+        const width = stage.width() || window.innerWidth;
+        const height = stage.height() || window.innerHeight;
+        centerX = Math.round((-pos.x + width / 2) / scale);
+        centerY = Math.round((-pos.y + height / 2) / scale);
+      }
+
+      for (const obj of template.objects) {
+        const id = `${obj.type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const base = {
+          id,
+          type: obj.type,
+          x: centerX + obj.x,
+          y: centerY + obj.y,
+          rotation: 0,
+          zIndex: obj.zIndex ?? 0,
+        };
+
+        if (obj.type === 'sticky') {
+          createObject({ ...base, width: obj.width || 200, height: obj.height || 200, text: obj.text || '', color: obj.color || '#ffeb3b' } as any);
+        } else if (obj.type === 'rectangle') {
+          createObject({ ...base, width: obj.width || 120, height: obj.height || 80, color: obj.color || '#2196f3' } as any);
+        } else if (obj.type === 'circle') {
+          createObject({ ...base, width: obj.width || 80, height: obj.height || 80, color: obj.color || '#4caf50' } as any);
+        } else if (obj.type === 'textbox') {
+          createObject({ ...base, text: obj.text || '', fontSize: obj.fontSize || 48, color: obj.color || '#1a1a1a', width: obj.width } as any);
+        } else if (obj.type === 'line') {
+          createObject({ ...base, width: obj.width || 200, height: obj.height || 0, color: obj.color || '#1a1a1a' } as any);
+        }
+      }
+
+      searchParams.delete('template');
+      setSearchParams(searchParams, { replace: true });
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [templateParam, connected]);
 
   useEffect(() => {
     if (effectiveReadOnly) return;

@@ -22,6 +22,7 @@ interface SupabaseBoardObject {
   rotation: number;
   color: string;
   text?: string;
+  font_size?: number;
   start_object_id?: string;
   end_object_id?: string;
   start_point?: { x: number; y: number };
@@ -374,6 +375,7 @@ export class SupabaseBoardService {
       width: legacyObj.width,
       height: legacyObj.height,
       text: legacyObj.text,
+      ...(legacyObj.fontSize != null ? { font_size: legacyObj.fontSize } : {}),
     };
   }
   
@@ -419,6 +421,7 @@ export class SupabaseBoardService {
       rotation: supabaseObj.rotation,
       text: supabaseObj.text,
       color: supabaseObj.color,
+      ...(supabaseObj.font_size != null ? { fontSize: supabaseObj.font_size } : {}),
       ...(supabaseObj.z_index != null ? { zIndex: supabaseObj.z_index } : {}),
     };
   }
