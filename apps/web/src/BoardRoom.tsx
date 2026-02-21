@@ -200,6 +200,11 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
           }),
         });
 
+        if (!response.ok) {
+          console.error('AI command failed:', response.status, response.statusText);
+          return;
+        }
+
         const liveObjects = new Map<string, any>();
         for (const obj of objects) {
           liveObjects.set(obj.id, { ...obj });

@@ -31,6 +31,11 @@ const BOARD_KEYWORDS = [
   'dragon', 'cat', 'dog', 'fish', 'bird', 'monster', 'castle', 'mountain',
   'pond', 'lake', 'river', 'ocean', 'sky', 'forest', 'city', 'town',
   'skating', 'swimming', 'flying', 'running', 'dancing', 'sitting',
+  // frameworks / templates
+  'swot', 'analysis', 'kanban', 'retro', 'retrospective', 'brainstorm', 'brainstorming',
+  'meeting', 'agenda', 'sprint', 'planning', 'roadmap', 'timeline', 'matrix',
+  'workflow', 'process', 'strategy', 'project', 'plan',
+  'todo', 'to-do', 'task', 'tasks', 'idea', 'ideas', 'template',
   // meta
   'help', 'what can you', 'how do i', 'can you',
   'analyze', 'analyse', 'summary', 'describe', 'count',
@@ -117,6 +122,10 @@ function classifyTask(command: string): 'simple' | 'creative' {
     'mountain', 'forest', 'building', 'diagram', 'flowchart', 'mindmap',
     'mind map', 'bird', 'fish', 'cat', 'dog', 'sun', 'moon',
     'pond', 'lake', 'river', 'ocean', 'sky', 'town',
+    // Frameworks / templates that need multi-object spatial layout
+    'swot', 'kanban', 'retrospective', 'retro', 'brainstorm', 'brainstorming',
+    'meeting', 'agenda', 'roadmap', 'timeline', 'matrix', 'analysis',
+    'sprint', 'planning', 'workflow', 'strategy', 'template',
   ];
 
   for (const keyword of creativeKeywords) {
@@ -719,7 +728,7 @@ export class AIService {
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
       const response = await openai.chat.completions.create({
         model: 'gpt-4o',
-        max_tokens: 1024,
+        max_tokens: 4096,
         messages: conversationMessages,
         tools: openaiTools,
         tool_choice: 'auto',
@@ -753,7 +762,18 @@ export class AIService {
       // Process each tool call
       for (const toolCall of toolCalls) {
         if (toolCall.type !== 'function') continue;
-        const args = JSON.parse(toolCall.function.arguments);
+        let args: any;
+        try {
+          args = JSON.parse(toolCall.function.arguments);
+        } catch {
+          console.warn(`Skipping malformed tool call "${toolCall.function.name}": truncated JSON`);
+          conversationMessages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: 'Error: malformed arguments, skipped.',
+          });
+          continue;
+        }
         actions.push({ tool: toolCall.function.name, arguments: args });
 
         const toolResult = this.buildToolResult(toolCall.function.name, args, boardObjects, objectSummary);
@@ -817,7 +837,7 @@ export class AIService {
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
       const stream = await openai.chat.completions.create({
         model: 'gpt-4o',
-        max_tokens: 1024,
+        max_tokens: 4096,
         messages: conversationMessages,
         tools: openaiTools,
         tool_choice: 'auto',
@@ -887,7 +907,18 @@ export class AIService {
 
       // Process completed tool calls and stream actions immediately
       for (const tc of toolCallAccumulators.values()) {
-        const args = JSON.parse(tc.arguments);
+        let args: any;
+        try {
+          args = JSON.parse(tc.arguments);
+        } catch {
+          console.warn(`Skipping malformed tool call "${tc.name}": truncated JSON`);
+          conversationMessages.push({
+            role: 'tool',
+            tool_call_id: tc.id,
+            content: 'Error: malformed arguments, skipped.',
+          });
+          continue;
+        }
         const action = { tool: tc.name, arguments: args };
         actions.push(action);
 
