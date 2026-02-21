@@ -25,6 +25,8 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
   const [connected, setConnected] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
+  const [bgColor, setBgColor] = useState("#f8fafc");
+  const [backgroundPattern, setBackgroundPattern] = useState<string>("dots");
   const dragThrottleRef = useRef<{ [key: string]: number }>({});
   const [objects, setObjects] = useState<BoardObject[]>([]);
   const [cursors, setCursors] = useState<Record<string, Cursor>>({});
@@ -356,6 +358,12 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
           })
           .on('broadcast', { event: 'board-lock' }, ({ payload }) => {
             setIsLocked(!!payload.locked);
+          })
+          .on('broadcast', { event: 'background-change' }, ({ payload }) => {
+            if (payload.sessionId !== sessionId) {
+              if (payload.bgColor != null) setBgColor(payload.bgColor);
+              if (payload.backgroundPattern != null) setBackgroundPattern(payload.backgroundPattern);
+            }
           })
           .on('broadcast', { event: 'drawing-path' }, ({ payload }) => {
             if (payload.sessionId !== sessionId) {
@@ -709,6 +717,16 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     }
   }, [isLocked]);
 
+  const emitBackgroundChange = useCallback((newBgColor: string, newPattern: string) => {
+    setBgColor(newBgColor);
+    setBackgroundPattern(newPattern);
+    presenceChannelRef.current?.send({
+      type: 'broadcast',
+      event: 'background-change',
+      payload: { sessionId, bgColor: newBgColor, backgroundPattern: newPattern },
+    });
+  }, [sessionId]);
+
   return {
     connected,
     objects,
@@ -737,5 +755,8 @@ export function useSupabaseBoard(userId: string, displayName: string, roomId?: s
     createObject,
     updateObject,
     deleteObject,
+    bgColor,
+    backgroundPattern,
+    emitBackgroundChange,
   };
 }

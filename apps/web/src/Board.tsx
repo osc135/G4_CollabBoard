@@ -350,6 +350,7 @@ interface BoardProps {
   onDrawingPath?: (points: number[], color: string, strokeWidth: number, penType: string) => void;
   onDrawingEnd?: () => void;
   remoteDrawingPaths?: Record<string, { points: number[]; color: string; strokeWidth: number; penType: string }>;
+  readOnly?: boolean;
 }
 
 const noop = () => {};
@@ -592,6 +593,7 @@ interface ObjectHandlers {
   onTransform: (id: string, x: number, y: number, rotation: number, scaleX?: number, scaleY?: number, origW?: number, origH?: number) => void;
   onTransformEnd: (obj: BoardObject, scaleX: number, scaleY: number, rotation: number, nodeX: number, nodeY: number) => void;
   onCursorMove: (x: number, y: number) => void;
+  readOnly?: boolean;
 }
 
 // ============= Memoized Sticky Note =============
@@ -619,7 +621,7 @@ const CACHE_PIXEL_RATIO = Math.min(window.devicePixelRatio || 1, 2);
 const MemoStickyNote = React.memo<MemoStickyProps>(({
   obj, isSelected, isHovered, isDragging, isEditing, isConnectorTarget, scale, remoteEditor,
   shapeRefs, onDragMove, onStickyDragStart, onStickyDragEnd, onSelect, onContextMenu,
-  onDblClick, onHoverEnter, onHoverLeave, onTransform, onTransformEnd, onCursorMove,
+  onDblClick, onHoverEnter, onHoverLeave, onTransform, onTransformEnd, onCursorMove, readOnly,
 }) => {
   const w = obj.width;
   const h = obj.height;
@@ -645,7 +647,7 @@ const MemoStickyNote = React.memo<MemoStickyProps>(({
       offsetX={w / 2}
       offsetY={h / 2}
       rotation={rot}
-      draggable
+      draggable={!readOnly}
       onDragStart={() => onStickyDragStart(obj.id)}
       onDragMove={(e) => {
         const newX = e.target.x() - w / 2;
@@ -847,7 +849,7 @@ interface MemoRectProps extends ObjectHandlers {
 
 const MemoRectangle = React.memo<MemoRectProps>(({
   obj, isSelected, isConnectorTarget, shapeRefs,
-  onDragMove, onDragEnd, onSelect, onContextMenu, onTransform, onTransformEnd, onCursorMove,
+  onDragMove, onDragEnd, onSelect, onContextMenu, onTransform, onTransformEnd, onCursorMove, readOnly,
 }) => {
   const w = obj.width;
   const h = obj.height;
@@ -873,7 +875,7 @@ const MemoRectangle = React.memo<MemoRectProps>(({
       offsetX={w / 2}
       offsetY={h / 2}
       rotation={rot}
-      draggable
+      draggable={!readOnly}
       onDragMove={(e) => {
         const newX = e.target.x() - w / 2;
         const newY = e.target.y() - h / 2;
@@ -939,7 +941,7 @@ interface MemoCircleProps extends ObjectHandlers {
 
 const MemoCircleObj = React.memo<MemoCircleProps>(({
   obj, isSelected, isConnectorTarget, shapeRefs,
-  onDragMove, onDragEnd, onSelect, onContextMenu, onTransform, onTransformEnd, onCursorMove,
+  onDragMove, onDragEnd, onSelect, onContextMenu, onTransform, onTransformEnd, onCursorMove, readOnly,
 }) => {
   const w = obj.width;
   const h = obj.height;
@@ -966,7 +968,7 @@ const MemoCircleObj = React.memo<MemoCircleProps>(({
       offsetX={w / 2}
       offsetY={h / 2}
       rotation={rot}
-      draggable
+      draggable={!readOnly}
       onDragMove={(e) => {
         const newX = e.target.x() - w / 2;
         const newY = e.target.y() - h / 2;
@@ -1030,7 +1032,7 @@ interface MemoLineProps extends ObjectHandlers {
 
 const MemoLineObj = React.memo<MemoLineProps>(({
   obj, isSelected, shapeRefs,
-  onDragMove, onDragEnd, onSelect, onContextMenu, onTransform, onCursorMove, onLineUpdate,
+  onDragMove, onDragEnd, onSelect, onContextMenu, onTransform, onCursorMove, onLineUpdate, readOnly,
 }) => {
   const w = obj.width;
   const h = obj.height;
@@ -1054,7 +1056,7 @@ const MemoLineObj = React.memo<MemoLineProps>(({
       x={obj.x}
       y={obj.y}
       rotation={rot}
-      draggable
+      draggable={!readOnly}
       onDragMove={(e) => {
         const newX = e.target.x();
         const newY = e.target.y();
@@ -1103,7 +1105,7 @@ const MemoLineObj = React.memo<MemoLineProps>(({
             fill="#3b82f6"
             stroke="#ffffff"
             strokeWidth={2}
-            draggable
+            draggable={!readOnly}
             onDragMove={(e) => {
               const newStartX = obj.x + e.target.x();
               const newStartY = obj.y + e.target.y();
@@ -1119,7 +1121,7 @@ const MemoLineObj = React.memo<MemoLineProps>(({
             fill="#3b82f6"
             stroke="#ffffff"
             strokeWidth={2}
-            draggable
+            draggable={!readOnly}
             onDragMove={(e) => {
               const newEndX = obj.x + e.target.x();
               const newEndY = obj.y + e.target.y();
@@ -1142,7 +1144,7 @@ interface MemoTextboxProps extends ObjectHandlers {
 
 const MemoTextbox = React.memo<MemoTextboxProps>(({
   obj, isSelected, shapeRefs,
-  onDragMove, onDragEnd, onSelect, onContextMenu, onTransform, onTransformEnd, onCursorMove,
+  onDragMove, onDragEnd, onSelect, onContextMenu, onTransform, onTransformEnd, onCursorMove, readOnly,
 }) => {
   const fontSize = obj.fontSize || 48;
   const color = obj.color || '#1a1a1a';
@@ -1155,7 +1157,7 @@ const MemoTextbox = React.memo<MemoTextboxProps>(({
       x={obj.x}
       y={obj.y}
       rotation={rot}
-      draggable
+      draggable={!readOnly}
       onDragMove={(e) => {
         onDragMove(obj.id, e.target.x(), e.target.y());
         const stage = e.target.getStage();
@@ -1213,7 +1215,7 @@ interface MemoDrawingProps extends ObjectHandlers {
 
 const MemoDrawing = React.memo<MemoDrawingProps>(({
   obj, isSelected, shapeRefs, currentTool,
-  onDragMove, onDragEnd, onSelect, onContextMenu, onCursorMove,
+  onDragMove, onDragEnd, onSelect, onContextMenu, onCursorMove, readOnly,
 }) => {
   const pts = obj.points;
   const isDrawingTool = currentTool === "drawing";
@@ -1242,7 +1244,7 @@ const MemoDrawing = React.memo<MemoDrawingProps>(({
       ref={(el) => {
         if (el) shapeRefs.current[obj.id] = el;
       }}
-      draggable={!isDrawingTool}
+      draggable={!readOnly && !isDrawingTool}
       listening={!isDrawingTool}
       onDragMove={(e) => {
         const newX = e.target.x();
@@ -1313,6 +1315,7 @@ interface MemoConnectorProps {
   shapeRefs: React.MutableRefObject<Record<string, Konva.Group>>;
   onSelect: (id: string) => void;
   onContextMenu: (e: Konva.KonvaEventObject<PointerEvent>, id: string) => void;
+  readOnly?: boolean;
 }
 
 const MemoConnector = React.memo<MemoConnectorProps>(({
@@ -1424,6 +1427,7 @@ export function Board({
   onDrawingPath,
   onDrawingEnd,
   remoteDrawingPaths = {},
+  readOnly = false,
 }: BoardProps) {
   const [scale, setScale] = useState(1);
   const scaleRef = useRef(1);
@@ -1640,6 +1644,7 @@ export function Board({
   }, []);
 
   const stableOnStickyDblClick = useCallback((id: string, text: string) => {
+    if (readOnly) return;
     // Block editing if another user has this sticky locked
     if (remoteEditingMapRef.current[id]) return;
     onStickyLockRef.current?.(id);
@@ -1844,6 +1849,7 @@ export function Board({
   const handleObjectContextMenu = useCallback((e: Konva.KonvaEventObject<PointerEvent>, objId: string) => {
     e.evt.preventDefault();
     e.cancelBubble = true;
+    if (readOnly) return;
     const stage = e.target.getStage();
     if (!stage) return;
     const pointerPos = stage.getPointerPosition();
@@ -2472,7 +2478,7 @@ export function Board({
       onDragMove={handleStageDragMove}
       onDragEnd={handleStageDragEnd}
     >
-      <Layer>
+      <Layer listening={!readOnly}>
         {selectionBox && (() => {
           const w = Math.abs(selectionBox.end.x - selectionBox.start.x);
           const h = Math.abs(selectionBox.end.y - selectionBox.start.y);
@@ -2552,6 +2558,7 @@ export function Board({
                 onTransform={stableOnTransform}
                 onTransformEnd={stableOnTransformEnd}
                 onCursorMove={stableOnCursorMove}
+                readOnly={readOnly}
               />
             );
           }
@@ -2571,6 +2578,7 @@ export function Board({
                 onTransform={stableOnTransform}
                 onTransformEnd={stableOnTransformEnd}
                 onCursorMove={stableOnCursorMove}
+                readOnly={readOnly}
               />
             );
           }
@@ -2590,6 +2598,7 @@ export function Board({
                 onTransform={stableOnTransform}
                 onTransformEnd={stableOnTransformEnd}
                 onCursorMove={stableOnCursorMove}
+                readOnly={readOnly}
               />
             );
           }
@@ -2609,6 +2618,7 @@ export function Board({
                 onTransformEnd={stableOnTransformEnd}
                 onCursorMove={stableOnCursorMove}
                 onLineUpdate={stableOnLineUpdate}
+                readOnly={readOnly}
               />
             );
           }
@@ -2627,6 +2637,7 @@ export function Board({
                 onTransform={stableOnTransform}
                 onTransformEnd={stableOnTransformEnd}
                 onCursorMove={stableOnCursorMove}
+                readOnly={readOnly}
               />
             );
           }
@@ -2646,6 +2657,7 @@ export function Board({
                 onTransform={stableOnTransform}
                 onTransformEnd={stableOnTransformEnd}
                 onCursorMove={stableOnCursorMove}
+                readOnly={readOnly}
               />
             );
           }
@@ -2669,6 +2681,7 @@ export function Board({
                 shapeRefs={shapeRefs}
                 onSelect={stableOnSelect}
                 onContextMenu={handleObjectContextMenu}
+                readOnly={readOnly}
               />
             );
           }
