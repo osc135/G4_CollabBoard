@@ -398,11 +398,11 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
       {/* AI Messages */}
       <div style={{
         flex: 1,
-        padding: '16px',
+        padding: '12px 0',
         overflowY: 'auto',
         display: 'flex',
         flexDirection: 'column',
-        gap: '12px'
+        gap: 0,
       }}>
         {messages.length === 0 ? (
           <div style={{
@@ -412,13 +412,15 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
             justifyContent: 'center',
             height: '100%',
             textAlign: 'center',
-            color: '#6b7280'
+            color: '#64748b',
+            padding: '0 24px',
+            gap: 8,
           }}>
-            <span style={{ fontSize: '24px', marginBottom: '8px' }}>✨</span>
-            <p style={{ margin: 0, fontSize: '14px' }}>
-              Ask me to create sticky notes, rectangles, circles, lines, organize your board, or analyze your content!
+            <span style={{ fontSize: 28, opacity: 0.6 }}>✨</span>
+            <p style={{ margin: 0, fontSize: 13, color: '#94a3b8' }}>
+              Ask me to create sticky notes, shapes, organize your board, or analyze content.
             </p>
-            <p style={{ margin: '8px 0 0 0', fontSize: '12px' }}>
+            <p style={{ margin: 0, fontSize: 12, color: '#475569' }}>
               Try: "Add a blue rectangle and a red circle"
             </p>
           </div>
@@ -428,30 +430,56 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
               <div
                 key={message.id}
                 style={{
-                  display: 'flex',
-                  justifyContent: message.sender === 'user' ? 'flex-end' : 'flex-start'
+                  padding: '6px 16px',
+                  marginTop: 6,
+                  transition: 'background 0.1s',
                 }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.03)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
               >
-                <div style={{
-                  maxWidth: '70%',
-                  padding: '8px 12px',
-                  borderRadius: message.sender === 'user' ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
-                  backgroundColor: message.sender === 'user' ? '#2563eb' : '#f3f4f6',
-                  color: message.sender === 'user' ? 'white' : '#374151',
-                  wordBreak: 'break-word'
-                }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                  <div style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 8,
+                    background: message.sender === 'ai'
+                      ? 'linear-gradient(135deg, #818cf8, #6366f1)'
+                      : 'linear-gradient(135deg, #34d399, #10b981)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    flexShrink: 0,
+                  }}>
+                    {message.sender === 'ai' ? 'AI' : 'U'}
+                  </div>
+                  <span style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: message.sender === 'ai' ? '#818cf8' : '#34d399',
+                  }}>
+                    {message.sender === 'ai' ? 'CollabBoard AI' : 'You'}
+                  </span>
+                  <span style={{ fontSize: 11, color: '#475569' }}>
+                    {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+                <div style={{ paddingLeft: 32 }}>
                   {message.sender === 'ai' ? (
-                    <div style={{ margin: 0, fontSize: '14px', lineHeight: 1.5 }}>
+                    <div style={{ fontSize: 13, lineHeight: 1.5, color: '#cbd5e1', wordBreak: 'break-word' }}>
                       <ReactMarkdown components={{
                         p: ({ children }) => <p style={{ margin: '4px 0' }}>{children}</p>,
-                        strong: ({ children }) => <strong style={{ fontWeight: 600 }}>{children}</strong>,
+                        strong: ({ children }) => <strong style={{ fontWeight: 600, color: '#e2e8f0' }}>{children}</strong>,
                         ol: ({ children }) => <ol style={{ margin: '4px 0', paddingLeft: '20px' }}>{children}</ol>,
                         ul: ({ children }) => <ul style={{ margin: '4px 0', paddingLeft: '20px' }}>{children}</ul>,
                         li: ({ children }) => <li style={{ margin: '2px 0' }}>{children}</li>,
+                        code: ({ children }) => <code style={{ background: 'rgba(255,255,255,0.06)', padding: '1px 5px', borderRadius: 4, fontSize: 12 }}>{children}</code>,
                       }}>{message.text}</ReactMarkdown>
                     </div>
                   ) : (
-                    <p style={{ margin: 0, fontSize: '14px' }}>{message.text}</p>
+                    <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: '#e2e8f0', wordBreak: 'break-word' }}>{message.text}</p>
                   )}
                 </div>
               </div>
@@ -462,45 +490,30 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
       </div>
 
       {/* AI Input */}
-      <div style={{
-        padding: '16px',
-        borderTop: '1px solid #e5e7eb',
-        backgroundColor: '#f9fafb'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <input
-            type="text"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={handleKeyPress}
-            placeholder="Ask AI to help with your board..."
-            style={{
-              flex: 1,
-              padding: '8px 12px',
-              border: '1px solid #e5e7eb',
-              borderRadius: '8px',
-              backgroundColor: 'white',
-              color: '#374151',
-              outline: 'none'
-            }}
-            disabled={isLoading}
-          />
-          <button
-            onClick={sendMessage}
-            style={{
-              padding: '8px 16px',
-              backgroundColor: isLoading || !inputText.trim() ? '#d1d5db' : '#2563eb',
-              color: isLoading || !inputText.trim() ? '#6b7280' : 'white',
-              borderRadius: '8px',
-              border: 'none',
-              cursor: isLoading || !inputText.trim() ? 'not-allowed' : 'pointer',
-              transition: 'background-color 0.2s'
-            }}
-            disabled={isLoading || !inputText.trim()}
-          >
-            {isLoading ? 'Sending...' : 'Send'}
-          </button>
-        </div>
+      <div style={{ padding: '0 12px 12px' }}>
+        <input
+          type="text"
+          value={inputText}
+          onChange={(e) => setInputText(e.target.value)}
+          onKeyDown={handleKeyPress}
+          placeholder="Ask AI something..."
+          style={{
+            width: '100%',
+            padding: '10px 14px',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 12,
+            backgroundColor: 'rgba(255,255,255,0.05)',
+            color: '#e2e8f0',
+            fontSize: 13,
+            outline: 'none',
+            boxSizing: 'border-box',
+            fontFamily: 'inherit',
+            transition: 'border-color 0.2s',
+          }}
+          onFocus={(e) => { e.currentTarget.style.borderColor = 'rgba(129,140,248,0.4)'; }}
+          onBlur={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}
+          disabled={isLoading}
+        />
       </div>
     </>
   );

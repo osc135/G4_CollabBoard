@@ -51,6 +51,8 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
   const bgPickerRef = useRef<HTMLDivElement>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'ai'>('chat');
+  const [panelSize, setPanelSize] = useState({ width: 380, height: 480 });
+  const isResizingRef = useRef(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const chatOpenRef = useRef(false);
   const chatMessagesEndRef = useRef<HTMLDivElement>(null);
@@ -312,6 +314,31 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showBgPicker]);
+
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizingRef.current = true;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startW = panelSize.width;
+    const startH = panelSize.height;
+    const onMove = (ev: MouseEvent) => {
+      if (!isResizingRef.current) return;
+      const dw = startX - ev.clientX;
+      const dh = startY - ev.clientY;
+      setPanelSize({
+        width: Math.max(320, Math.min(640, startW + dw)),
+        height: Math.max(300, Math.min(800, startH + dh)),
+      });
+    };
+    const onUp = () => {
+      isResizingRef.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
 
   // In read-only mode, skip auth checks
   if (!readOnly) {
@@ -1159,30 +1186,32 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
         />
       )}
 
-      {/* Unified Chat FAB */}
+      {/* Chat FAB */}
       <button
         onClick={() => setPanelOpen(prev => !prev)}
         style={{
           position: 'fixed',
           bottom: 24,
           right: 24,
-          width: 48,
-          height: 48,
-          borderRadius: '50%',
-          background: panelOpen ? '#1d4ed8' : '#2563eb',
+          width: 52,
+          height: 52,
+          borderRadius: 16,
+          background: panelOpen
+            ? 'linear-gradient(135deg, #6366f1, #8b5cf6)'
+            : 'linear-gradient(135deg, #818cf8, #6366f1)',
           color: 'white',
           border: 'none',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+          boxShadow: '0 4px 20px rgba(99,102,241,0.4)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           cursor: 'pointer',
           zIndex: 50,
           fontSize: 22,
-          transition: 'transform 0.2s, background-color 0.2s',
+          transition: 'transform 0.2s, box-shadow 0.2s',
         }}
-        onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.1)'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+        onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.08)'; e.currentTarget.style.boxShadow = '0 6px 28px rgba(99,102,241,0.5)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 4px 20px rgba(99,102,241,0.4)'; }}
         aria-label="Open Chat"
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
@@ -1191,8 +1220,8 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
         {unreadCount > 0 && (!panelOpen || activeTab !== 'chat') && (
           <span style={{
             position: 'absolute',
-            top: -4,
-            right: -4,
+            top: -5,
+            right: -5,
             background: '#ef4444',
             color: 'white',
             fontSize: 11,
@@ -1203,60 +1232,83 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+            boxShadow: '0 2px 6px rgba(239,68,68,0.4)',
+            border: '2px solid #1e293b',
           }}>
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
       </button>
 
-      {/* Unified Tabbed Panel */}
+      {/* Chat Panel */}
       {panelOpen && (
         <div data-chat-panel style={{
           position: 'fixed',
           bottom: 88,
           right: 24,
-          width: 384,
-          maxHeight: 500,
-          backgroundColor: 'white',
-          borderRadius: 12,
-          boxShadow: '0 16px 48px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08)',
+          width: panelSize.width,
+          height: panelSize.height,
+          background: 'linear-gradient(180deg, #1e1e2e 0%, #181825 100%)',
+          borderRadius: 16,
+          boxShadow: '0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06)',
           zIndex: 50,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
+          backdropFilter: 'blur(20px)',
         }}>
-          {/* Header — tab bar + close */}
+          {/* Resize handle — top-left corner */}
+          <div
+            onMouseDown={handleResizeStart}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: 20,
+              height: 20,
+              cursor: 'nw-resize',
+              zIndex: 10,
+            }}
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" style={{ position: 'absolute', top: 5, left: 5, opacity: 0.3 }}>
+              <path d="M0 10L10 0" stroke="#94a3b8" strokeWidth="1.5"/>
+              <path d="M0 6L6 0" stroke="#94a3b8" strokeWidth="1.5"/>
+            </svg>
+          </div>
+
+          {/* Header */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            borderBottom: '1px solid #e5e7eb',
+            padding: '0 4px 0 0',
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
           }}>
-            {/* Tabs */}
             <div style={{ display: 'flex', flex: 1 }}>
               <button
                 onClick={() => setActiveTab('chat')}
                 style={{
                   flex: 1,
-                  padding: '12px 16px',
+                  padding: '14px 16px',
                   background: 'none',
                   border: 'none',
-                  borderBottom: activeTab === 'chat' ? '2px solid #2563eb' : '2px solid transparent',
-                  color: activeTab === 'chat' ? '#2563eb' : '#6b7280',
-                  fontSize: 14,
+                  borderBottom: activeTab === 'chat' ? '2px solid #818cf8' : '2px solid transparent',
+                  color: activeTab === 'chat' ? '#e2e8f0' : '#64748b',
+                  fontSize: 13,
                   fontWeight: 600,
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: 6,
-                  transition: 'color 0.15s',
+                  transition: 'color 0.2s',
+                  letterSpacing: '0.02em',
+                  textTransform: 'uppercase',
                 }}
               >
                 Chat
                 {unreadCount > 0 && activeTab !== 'chat' && (
                   <span style={{
-                    background: '#ef4444',
+                    background: 'linear-gradient(135deg, #ef4444, #dc2626)',
                     color: 'white',
                     fontSize: 10,
                     fontWeight: 700,
@@ -1274,114 +1326,121 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                   onClick={() => setActiveTab('ai')}
                   style={{
                     flex: 1,
-                    padding: '12px 16px',
+                    padding: '14px 16px',
                     background: 'none',
                     border: 'none',
-                    borderBottom: activeTab === 'ai' ? '2px solid #2563eb' : '2px solid transparent',
-                    color: activeTab === 'ai' ? '#2563eb' : '#6b7280',
-                    fontSize: 14,
+                    borderBottom: activeTab === 'ai' ? '2px solid #818cf8' : '2px solid transparent',
+                    color: activeTab === 'ai' ? '#e2e8f0' : '#64748b',
+                    fontSize: 13,
                     fontWeight: 600,
                     cursor: 'pointer',
-                    transition: 'color 0.15s',
+                    transition: 'color 0.2s',
+                    letterSpacing: '0.02em',
+                    textTransform: 'uppercase',
                   }}
                 >
                   AI
                 </button>
               )}
             </div>
-            {/* Close button */}
             <button
               onClick={() => setPanelOpen(false)}
               style={{
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
-                fontSize: 18,
-                color: '#6b7280',
-                padding: '2px 12px',
-                borderRadius: 4,
+                fontSize: 16,
+                color: '#64748b',
+                padding: '6px 10px',
+                borderRadius: 8,
+                transition: 'color 0.15s, background 0.15s',
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = '#f3f4f6'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = '#e2e8f0'; e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = 'none'; }}
             >
               ✕
             </button>
           </div>
 
-          {/* Body — Chat tab */}
+          {/* Chat tab */}
           {activeTab === 'chat' && (
             <>
-              {/* Messages */}
               <div style={{
                 flex: 1,
                 overflowY: 'auto',
-                padding: '12px 16px',
+                padding: '12px 0',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 6,
+                gap: 0,
               }}>
                 {chatMessages.length === 0 && (
                   <div style={{
                     flex: 1,
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: '#9ca3af',
+                    color: '#64748b',
                     fontSize: 13,
+                    gap: 8,
+                    padding: '0 24px',
+                    textAlign: 'center',
                   }}>
-                    No messages yet. Say hi!
+                    <span style={{ fontSize: 28, opacity: 0.6 }}>💬</span>
+                    <span>No messages yet — start the conversation!</span>
                   </div>
                 )}
                 {chatMessages.map((msg, i) => {
                   const isOwn = msg.senderId === userId;
-                  const showSender = !isOwn && (i === 0 || chatMessages[i - 1].senderId !== msg.senderId);
-                  const CURSOR_COLORS = ["#ef4444", "#22c55e", "#3b82f6", "#a855f7", "#f59e0b"];
-                  const senderColorIndex = Math.abs(msg.senderName.split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % CURSOR_COLORS.length;
-                  const senderColor = CURSOR_COLORS[senderColorIndex];
+                  const showSender = i === 0 || chatMessages[i - 1].senderId !== msg.senderId;
+                  const SENDER_COLORS = ["#f87171", "#34d399", "#818cf8", "#f472b6", "#fbbf24"];
+                  const senderColorIndex = Math.abs(msg.senderName.split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % SENDER_COLORS.length;
+                  const senderColor = SENDER_COLORS[senderColorIndex];
                   const timeAgo = formatTimeAgo(msg.timestamp);
 
                   return (
                     <div key={msg.id} style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: isOwn ? 'flex-end' : 'flex-start',
-                      marginTop: showSender ? 8 : 0,
-                    }}>
+                      padding: '3px 16px',
+                      marginTop: showSender ? 10 : 0,
+                      transition: 'background 0.1s',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                    >
                       {showSender && (
-                        <span style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: senderColor,
-                          marginBottom: 2,
-                          marginLeft: isOwn ? 0 : 4,
-                          marginRight: isOwn ? 4 : 0,
-                        }}>
-                          {msg.senderName}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                          <div style={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: 8,
+                            background: `linear-gradient(135deg, ${senderColor}, ${senderColor}88)`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: 'white',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            flexShrink: 0,
+                          }}>
+                            {msg.senderName.charAt(0).toUpperCase()}
+                          </div>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: senderColor }}>
+                            {msg.senderName}
+                          </span>
+                          <span style={{ fontSize: 11, color: '#475569' }}>
+                            {timeAgo}
+                          </span>
+                        </div>
                       )}
                       <div style={{
-                        maxWidth: '80%',
-                        padding: '8px 12px',
-                        borderRadius: isOwn ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
-                        background: isOwn ? '#2563eb' : '#f1f5f9',
-                        color: isOwn ? 'white' : '#1e293b',
+                        color: isOwn ? '#e2e8f0' : '#cbd5e1',
                         fontSize: 13,
-                        lineHeight: 1.4,
+                        lineHeight: 1.5,
                         wordBreak: 'break-word',
+                        paddingLeft: showSender ? 32 : 32,
                       }}>
                         {msg.text}
                       </div>
-                      {(i === chatMessages.length - 1 || chatMessages[i + 1].senderId !== msg.senderId) && (
-                        <span style={{
-                          fontSize: 10,
-                          color: '#9ca3af',
-                          marginTop: 2,
-                          marginLeft: isOwn ? 0 : 4,
-                          marginRight: isOwn ? 4 : 0,
-                        }}>
-                          {timeAgo}
-                        </span>
-                      )}
                     </div>
                   );
                 })}
@@ -1389,13 +1448,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
               </div>
 
               {/* Input */}
-              <div style={{
-                borderTop: '1px solid #e5e7eb',
-                padding: '10px 12px',
-                display: 'flex',
-                alignItems: 'flex-end',
-                gap: 8,
-              }}>
+              <div style={{ padding: '0 12px 12px' }}>
                 <textarea
                   ref={chatInputRef}
                   value={chatInput}
@@ -1415,6 +1468,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                     }
                   }}
                   onBlur={(e) => {
+                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
                     const panel = e.currentTarget.closest('[data-chat-panel]');
                     if (panel) {
                       setTimeout(() => {
@@ -1427,50 +1481,29 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                   placeholder="Type a message..."
                   rows={1}
                   style={{
-                    flex: 1,
-                    padding: '8px 12px',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: 8,
+                    width: '100%',
+                    padding: '10px 14px',
+                    backgroundColor: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 12,
                     fontSize: 13,
+                    color: '#e2e8f0',
                     outline: 'none',
                     resize: 'none',
-                    lineHeight: 1.4,
+                    lineHeight: 1.5,
                     maxHeight: 120,
                     overflowY: 'auto',
                     fontFamily: 'inherit',
+                    boxSizing: 'border-box',
+                    transition: 'border-color 0.2s',
                   }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = 'rgba(129,140,248,0.4)'; }}
                 />
-                <button
-                  onClick={() => {
-                    if (chatInput.trim()) {
-                      emitChatMessage(chatInput.trim());
-                      setChatInput('');
-                      if (chatInputRef.current) {
-                        chatInputRef.current.style.height = 'auto';
-                        chatInputRef.current.focus();
-                      }
-                    }
-                  }}
-                  style={{
-                    padding: '8px 14px',
-                    background: chatInput.trim() ? '#2563eb' : '#e5e7eb',
-                    color: chatInput.trim() ? 'white' : '#9ca3af',
-                    border: 'none',
-                    borderRadius: 8,
-                    cursor: chatInput.trim() ? 'pointer' : 'default',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    transition: 'background 0.15s',
-                    flexShrink: 0,
-                  }}
-                >
-                  Send
-                </button>
               </div>
             </>
           )}
 
-          {/* Body — AI tab */}
+          {/* AI tab */}
           {activeTab === 'ai' && !effectiveReadOnly && (
             <AIChatContent
               callbacks={{ createObject, updateObject, deleteObject }}
