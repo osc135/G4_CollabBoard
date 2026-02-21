@@ -503,6 +503,44 @@ function calculateOrthogonalPath(start: { x: number; y: number }, end: { x: numb
   ];
 }
 
+// Helper to get the bounding box of an object.
+function getObjectBounds(obj: BoardObject): { x: number; y: number; w: number; h: number } | null {
+  if (obj.type === "connector") return null;
+  if (obj.type === "drawing") {
+    const pts = obj.points;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < pts.length; i += 2) {
+      if (pts[i] < minX) minX = pts[i];
+      if (pts[i] > maxX) maxX = pts[i];
+      if (pts[i + 1] < minY) minY = pts[i + 1];
+      if (pts[i + 1] > maxY) maxY = pts[i + 1];
+    }
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }
+  const w = obj.type === "line" ? 100 : (obj.width ?? 100);
+  const h = obj.type === "line" ? 100 : (obj.height ?? 100);
+  return { x: obj.x, y: obj.y, w, h };
+}
+
+// Helper to find the max zIndex of objects overlapping a given object.
+function findMaxOverlappingZIndex(objects: BoardObject[], target: BoardObject): number | null {
+  const tb = getObjectBounds(target);
+  if (!tb) return null;
+  let maxZ: number | null = null;
+  for (const obj of objects) {
+    if (obj.id === target.id) continue;
+    const ob = getObjectBounds(obj);
+    if (!ob) continue;
+    // Check for bounding box overlap
+    if (tb.x < ob.x + ob.w && tb.x + tb.w > ob.x &&
+        tb.y < ob.y + ob.h && tb.y + tb.h > ob.y) {
+      const z = (obj as any).zIndex ?? 0;
+      if (maxZ === null || z > maxZ) maxZ = z;
+    }
+  }
+  return maxZ;
+}
+
 // Helper to find which object is under a point.
 // Accepts a pre-sorted array (descending zIndex) to avoid re-sorting on every call.
 function findObjectAtPoint(objects: BoardObject[], point: { x: number; y: number }): BoardObject | null {
@@ -1544,10 +1582,15 @@ export function Board({
     if (dragRafRef.current) { cancelAnimationFrame(dragRafRef.current); dragRafRef.current = null; }
     setDraggingObject(null);
     onObjectDragEndRef.current?.(id, x, y);
+    const movedObj = obj.type === 'drawing' ? obj : obj.type !== 'connector' ? { ...obj, x, y, rotation } : obj;
+    // Place dropped item above any overlapping objects
+    const maxZ = findMaxOverlappingZIndex(objectsRef.current, movedObj as BoardObject);
+    const currentZ = (obj as any).zIndex ?? 0;
+    const newZ = maxZ !== null && maxZ >= currentZ ? maxZ + 1 : currentZ;
     if (obj.type === 'drawing') {
-      onObjectUpdateRef.current(obj);
+      onObjectUpdateRef.current({ ...obj, zIndex: newZ } as any);
     } else if (obj.type !== 'connector') {
-      onObjectUpdateRef.current({ ...obj, x, y, rotation });
+      onObjectUpdateRef.current({ ...obj, x, y, rotation, zIndex: newZ } as any);
     }
   }, []);
 
@@ -1618,8 +1661,13 @@ export function Board({
 
   // ============= Memoized sorted objects =============
   const sortedObjects = useMemo(
-    () => [...objects].sort((a, b) => ((a as any).zIndex ?? 0) - ((b as any).zIndex ?? 0)),
-    [objects]
+    () => [...objects].sort((a, b) => {
+      const aOnTop = (draggingObject?.id === a.id || selectedIdsSet.has(a.id)) ? 1 : 0;
+      const bOnTop = (draggingObject?.id === b.id || selectedIdsSet.has(b.id)) ? 1 : 0;
+      if (aOnTop !== bOnTop) return aOnTop - bOnTop;
+      return ((a as any).zIndex ?? 0) - ((b as any).zIndex ?? 0);
+    }),
+    [objects, draggingObject, selectedIdsSet]
   );
 
   // ============= Viewport culling — only render visible objects =============
