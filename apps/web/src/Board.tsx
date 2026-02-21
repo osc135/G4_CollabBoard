@@ -2125,18 +2125,13 @@ export function Board({
         const height = dl.currentY - dl.startY;
 
         if (Math.abs(width) >= 10 || Math.abs(height) >= 10) {
-          const normalizedX = Math.min(dl.startX, dl.currentX);
-          const normalizedY = Math.min(dl.startY, dl.currentY);
-          const normalizedWidth = Math.abs(width);
-          const normalizedHeight = Math.abs(height);
-
           onObjectCreateRef.current({
             id: dl.id,
             type: "line",
-            x: normalizedX,
-            y: normalizedY,
-            width: normalizedWidth,
-            height: normalizedHeight,
+            x: dl.startX,
+            y: dl.startY,
+            width: width,
+            height: height,
             color: selectedShapeColor,
             rotation: 0,
           });

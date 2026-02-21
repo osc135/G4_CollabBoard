@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import type { BoardObject } from "@collabboard/shared";
-import { Board, type Tool, type BackgroundPattern, STICKY_COLORS, getRandomStickyColor } from "./Board";
+import { Board, type Tool, type BackgroundPattern, STICKY_COLORS } from "./Board";
 import { useSupabaseBoard } from "./useSupabaseBoard";
 import { useAuth } from "./contexts/AuthContext";
 import { extractRoomCode } from "./utils/roomCode";
@@ -42,7 +42,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
   const [tool, setTool] = useState<Tool>(readOnly ? "pan" : "pan");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedStickyColor, setSelectedStickyColor] = useState<string>(STICKY_COLORS[0]);
-  const [selectedShapeColor, setSelectedShapeColor] = useState<string>("#3b82f6");
+  const [selectedShapeColor, setSelectedShapeColor] = useState<string>(STICKY_COLORS[0]);
   const [penType, setPenType] = useState<"pen" | "marker" | "highlighter">("pen");
   const [penStrokeWidth, setPenStrokeWidth] = useState<number>(3);
   const [backgroundPattern, setBackgroundPattern] = useState<BackgroundPattern>("dots");
@@ -799,7 +799,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
 
         <div style={{ flex: 1 }} />
 
-        {tool === "sticky" && (
+        {tool === "sticky" && selectedIds.length === 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6 }}>
             <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>COLOR</span>
             {STICKY_COLORS.map((color) => (
@@ -822,21 +822,25 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                 onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
               />
             ))}
-            <button
-              onClick={() => setSelectedStickyColor(getRandomStickyColor())}
-              style={{
-                padding: "4px 10px",
-                fontSize: 11,
+            <label style={{ position: "relative", width: 24, height: 24, cursor: "pointer" }}>
+              <input
+                type="color"
+                value={selectedStickyColor}
+                onChange={(e) => setSelectedStickyColor(e.target.value)}
+                style={{ position: "absolute", inset: 0, opacity: 0, width: "100%", height: "100%", cursor: "pointer" }}
+              />
+              <div style={{
+                width: 24, height: 24, borderRadius: 6,
                 background: "white",
-                border: "1px solid rgba(0,0,0,0.1)",
-                borderRadius: 6,
-                cursor: "pointer",
-                fontWeight: 500,
-                color: "#4b5563"
-              }}
-            >
-              🎲
-            </button>
+                border: "1px solid rgba(0,0,0,0.1)", pointerEvents: "none",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4b5563" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16.7 3.3a1 1 0 0 1 1.4 0l2.6 2.6a1 1 0 0 1 0 1.4l-3.2 3.2-4-4z" />
+                  <path d="M13.5 6.5l-9.1 9.1a2 2 0 0 0-.6 1.4V20a1 1 0 0 0 1 1h3a2 2 0 0 0 1.4-.6l9.1-9.1" />
+                </svg>
+              </div>
+            </label>
           </div>
         )}
 
@@ -898,10 +902,10 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
           </div>
         )}
 
-        {(tool === "rectangle" || tool === "circle" || tool === "line" || tool === "drawing") && (
+        {(tool === "rectangle" || tool === "circle" || tool === "line" || tool === "drawing") && selectedIds.length === 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6 }}>
             <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>COLOR</span>
-            {["#3b82f6", "#ef4444", "#22c55e", "#f59e0b", "#8b5cf6", "#ec4899"].map((color) => (
+            {STICKY_COLORS.map((color) => (
               <button
                 key={color}
                 onClick={() => setSelectedShapeColor(color)}
@@ -921,8 +925,100 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                 onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
               />
             ))}
+            <label style={{ position: "relative", width: 24, height: 24, cursor: "pointer" }}>
+              <input
+                type="color"
+                value={selectedShapeColor}
+                onChange={(e) => setSelectedShapeColor(e.target.value)}
+                style={{ position: "absolute", inset: 0, opacity: 0, width: "100%", height: "100%", cursor: "pointer" }}
+              />
+              <div style={{
+                width: 24, height: 24, borderRadius: 6,
+                background: "white",
+                border: "1px solid rgba(0,0,0,0.1)", pointerEvents: "none",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4b5563" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16.7 3.3a1 1 0 0 1 1.4 0l2.6 2.6a1 1 0 0 1 0 1.4l-3.2 3.2-4-4z" />
+                  <path d="M13.5 6.5l-9.1 9.1a2 2 0 0 0-.6 1.4V20a1 1 0 0 0 1 1h3a2 2 0 0 0 1.4-.6l9.1-9.1" />
+                </svg>
+              </div>
+            </label>
           </div>
         )}
+
+        {selectedIds.length > 0 && (() => {
+          const selObj = objects.find(o => o.id === selectedIds[0]);
+          if (!selObj) return null;
+          const colors = STICKY_COLORS;
+          return (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6 }}>
+              <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>COLOR</span>
+              {colors.map((color) => (
+                <button
+                  key={color}
+                  onClick={() => {
+                    selectedIds.forEach(id => {
+                      const obj = objects.find(o => o.id === id);
+                      if (obj) updateObject({ ...obj, color } as any);
+                    });
+                  }}
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 6,
+                    background: color,
+                    border: selObj.color === color ? "2px solid #1e293b" : "1px solid rgba(0,0,0,0.1)",
+                    cursor: "pointer",
+                    padding: 0,
+                    transition: "all 0.15s",
+                    boxShadow: selObj.color === color ? "0 0 0 3px rgba(0,0,0,0.1)" : "none"
+                  }}
+                  title={color}
+                  onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1)"}
+                  onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+                />
+              ))}
+              <label style={{ position: "relative", width: 24, height: 24, cursor: "pointer" }}>
+                <input
+                  type="color"
+                  value={selObj.color || "#000000"}
+                  onChange={(e) => {
+                    const c = e.target.value;
+                    selectedIds.forEach(id => {
+                      const obj = objects.find(o => o.id === id);
+                      if (obj) updateObject({ ...obj, color: c } as any);
+                    });
+                  }}
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    opacity: 0,
+                    width: "100%",
+                    height: "100%",
+                    cursor: "pointer",
+                  }}
+                />
+                <div style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 6,
+                  background: "white",
+                  border: "1px solid rgba(0,0,0,0.1)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  pointerEvents: "none",
+                }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4b5563" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M16.7 3.3a1 1 0 0 1 1.4 0l2.6 2.6a1 1 0 0 1 0 1.4l-3.2 3.2-4-4z" />
+                    <path d="M13.5 6.5l-9.1 9.1a2 2 0 0 0-.6 1.4V20a1 1 0 0 0 1 1h3a2 2 0 0 0 1.4-.6l9.1-9.1" />
+                  </svg>
+                </div>
+              </label>
+            </div>
+          );
+        })()}
 
         {selectedIds.length > 0 && (
           <button
