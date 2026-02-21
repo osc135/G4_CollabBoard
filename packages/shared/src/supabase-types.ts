@@ -27,6 +27,7 @@ export interface SupabaseBoardObject {
   
   // Content
   text?: string;
+  font_size?: number;
   
   // Connector-specific fields
   start_object_id?: string;

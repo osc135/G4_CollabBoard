@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { RoomPreview } from "./RoomPreview";
 import { SupabaseBoardService } from "./lib/supabase-boards";
 import { extractRoomCode } from "./utils/roomCode";
+import { BOARD_TEMPLATES } from "./templates";
 
 interface BoardSummary {
   id: string;
@@ -143,6 +144,18 @@ export function Dashboard() {
       alert('Failed to create room');
     } finally {
       setAiGenerating(false);
+    }
+  }
+
+  async function createRoomFromTemplate(templateId: string, templateName: string) {
+    if (!user) return;
+    try {
+      const roomId = `room-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      await SupabaseBoardService.createBoard(templateName, roomId);
+      navigate(`/board/${roomId}?template=${encodeURIComponent(templateId)}`);
+    } catch (err) {
+      console.error('Error creating template room:', err);
+      alert('Failed to create room');
     }
   }
 
@@ -583,6 +596,70 @@ export function Dashboard() {
               >
                 {aiGenerating ? 'Creating...' : 'Generate'}
               </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Templates */}
+        <div style={{ marginBottom: "24px" }}>
+          <div style={{
+            background: "white",
+            borderRadius: "14px",
+            border: "1px solid #e2e8f0",
+            padding: "20px 24px",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.04)"
+          }}>
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              marginBottom: "12px"
+            }}>
+              <span style={{ fontSize: "18px" }}>📐</span>
+              <span style={{ fontSize: "14px", fontWeight: "600", color: "#1a202c" }}>Start from a Template</span>
+            </div>
+            <p style={{ fontSize: "13px", color: "#64748b", margin: "0 0 14px 0" }}>
+              Jump into structured collaboration with a preset layout.
+            </p>
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+              gap: "10px"
+            }}>
+              {BOARD_TEMPLATES.map((tmpl) => (
+                <button
+                  key={tmpl.id}
+                  onClick={() => createRoomFromTemplate(tmpl.id, tmpl.name)}
+                  style={{
+                    padding: "14px 16px",
+                    background: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "10px",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    transition: "all 0.2s ease",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = "#667eea";
+                    e.currentTarget.style.background = "#eef2ff";
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                    e.currentTarget.style.boxShadow = "0 4px 12px rgba(102, 126, 234, 0.15)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "#e2e8f0";
+                    e.currentTarget.style.background = "#f8fafc";
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
+                >
+                  <span style={{ fontSize: "22px" }}>{tmpl.emoji}</span>
+                  <span style={{ fontSize: "14px", fontWeight: "600", color: "#1a202c" }}>{tmpl.name}</span>
+                  <span style={{ fontSize: "12px", color: "#64748b", lineHeight: "1.3" }}>{tmpl.description}</span>
+                </button>
+              ))}
             </div>
           </div>
         </div>
