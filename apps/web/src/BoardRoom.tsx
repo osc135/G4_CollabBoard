@@ -165,12 +165,117 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
     }
   }, [chatMessages, chatTabVisible]);
 
-  // Auto-open panel on AI tab when ?ai= param is present
+  // Auto-execute AI prompt from dashboard (without opening chat panel)
+  const aiPromptFired = useRef(false);
   useEffect(() => {
-    if (aiPrompt && connected) {
-      setPanelOpen(true);
-      setActiveTab('ai');
-    }
+    if (!aiPrompt || !connected || aiPromptFired.current) return;
+    aiPromptFired.current = true;
+
+    const timer = setTimeout(async () => {
+      try {
+        // Get viewport center for positioning
+        let centerX = 400, centerY = 300;
+        if (stageRef.current) {
+          const stage = stageRef.current;
+          const scale = stage.scaleX() || 1;
+          const pos = stage.position() || { x: 0, y: 0 };
+          const width = stage.width() || window.innerWidth;
+          const height = stage.height() || window.innerHeight;
+          centerX = Math.round((-pos.x + width / 2) / scale);
+          centerY = Math.round((-pos.y + height / 2) / scale);
+        }
+
+        const apiBase = import.meta.env.VITE_API_URL || '';
+        const response = await fetch(`${apiBase}/api/ai/command`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            command: aiPrompt,
+            roomId,
+            viewport: { x: centerX, y: centerY },
+            history: [],
+            objects,
+          }),
+        });
+
+        const liveObjects = new Map<string, any>();
+        for (const obj of objects) {
+          liveObjects.set(obj.id, { ...obj });
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) return;
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+        const offset = (val: number | undefined) => val ?? 0;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const event = JSON.parse(line);
+              if (event.type === 'action') {
+                const action = event.action;
+                const args = action.arguments;
+
+                if (action.tool === 'create_sticky_note') {
+                  const newObj = { id: `sticky-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, type: 'sticky' as const, x: centerX + offset(args.x), y: centerY + offset(args.y), width: 200, height: 200, rotation: 0, text: args.text || '', color: args.color || '#ffeb3b', zIndex: args.zIndex ?? 0 };
+                  liveObjects.set(newObj.id, newObj);
+                  createObject(newObj);
+                } else if (action.tool === 'create_rectangle') {
+                  const newObj = { id: `rect-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, type: 'rectangle' as const, x: centerX + offset(args.x), y: centerY + offset(args.y), width: args.width || 120, height: args.height || 80, color: args.color || '#2196f3', rotation: 0, zIndex: args.zIndex ?? 0 };
+                  liveObjects.set(newObj.id, newObj);
+                  createObject(newObj);
+                } else if (action.tool === 'create_circle') {
+                  const size = args.size || 80;
+                  const newObj = { id: `circle-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, type: 'circle' as const, x: centerX + offset(args.x), y: centerY + offset(args.y), width: size, height: size, color: args.color || '#4caf50', rotation: 0, zIndex: args.zIndex ?? 0 };
+                  liveObjects.set(newObj.id, newObj);
+                  createObject(newObj);
+                } else if (action.tool === 'create_line') {
+                  const newObj = { id: `line-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, type: 'line' as const, x: centerX + offset(args.x), y: centerY + offset(args.y), width: args.width || 200, height: args.height || 0, color: args.color || '#1a1a1a', rotation: 0, zIndex: args.zIndex ?? 0 };
+                  liveObjects.set(newObj.id, newObj);
+                  createObject(newObj);
+                } else if (action.tool === 'create_text') {
+                  const newObj = { id: `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, type: 'textbox' as const, x: centerX + offset(args.x), y: centerY + offset(args.y), text: args.text || '', fontSize: args.fontSize || 48, color: args.color || '#1a1a1a', width: args.width, rotation: 0, zIndex: args.zIndex ?? 0 };
+                  liveObjects.set(newObj.id, newObj);
+                  createObject(newObj);
+                } else if (action.tool === 'delete_object') {
+                  liveObjects.delete(args.id);
+                  deleteObject(args.id);
+                } else if (action.tool === 'clear_board') {
+                  for (const id of liveObjects.keys()) { deleteObject(id); }
+                  liveObjects.clear();
+                } else if (action.tool === 'update_object' || action.tool === 'move_object') {
+                  const existing = liveObjects.get(args.id);
+                  if (existing) {
+                    const updated = { ...existing, ...args };
+                    if (action.tool === 'move_object') { updated.x = centerX + offset(args.x); updated.y = centerY + offset(args.y); }
+                    liveObjects.set(args.id, updated);
+                    updateObject(updated);
+                  }
+                }
+              }
+            } catch { /* skip malformed lines */ }
+          }
+        }
+      } catch (err) {
+        console.error('AI initial prompt error:', err);
+      }
+
+      // Clean up URL param
+      searchParams.delete('ai');
+      setSearchParams(searchParams, { replace: true });
+    }, 500);
+
+    return () => clearTimeout(timer);
   }, [aiPrompt, connected]);
 
   useEffect(() => {
@@ -1371,12 +1476,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
               callbacks={{ createObject, updateObject, deleteObject }}
               stageRef={stageRef}
               objects={objects}
-              initialPrompt={aiPrompt || undefined}
               boardConnected={connected}
-              onInitialPromptConsumed={() => {
-                searchParams.delete('ai');
-                setSearchParams(searchParams, { replace: true });
-              }}
               isVisible={panelOpen && activeTab === 'ai'}
             />
           )}
