@@ -45,8 +45,6 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
   const [selectedShapeColor, setSelectedShapeColor] = useState<string>(STICKY_COLORS[0]);
   const [penType, setPenType] = useState<"pen" | "marker" | "highlighter">("pen");
   const [penStrokeWidth, setPenStrokeWidth] = useState<number>(3);
-  const [backgroundPattern, setBackgroundPattern] = useState<BackgroundPattern>("dots");
-  const [bgColor, setBgColor] = useState("#f8fafc");
   const [showBgPicker, setShowBgPicker] = useState(false);
   const bgPickerRef = useRef<HTMLDivElement>(null);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -71,7 +69,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
   const [inviteCode, setInviteCode] = useState<string>("");
   const stageRef = useRef<Konva.Stage | null>(null);
 
-  const { connected, objects, cursors, presence, isOwner, isLocked, toggleLock, remoteSelections, remoteEditingMap, remoteDraggingIds, remoteDrawingPaths, chatMessages, emitChatMessage, emitCursor, emitSelection, emitTextEdit, emitStickyLock, emitStickyUnlock, emitObjectDrag, emitObjectDragEnd, emitObjectTransform, emitObjectTransformEnd, emitDrawingPath, emitDrawingEnd, createObject, updateObject, deleteObject } = useSupabaseBoard(
+  const { connected, objects, cursors, presence, isOwner, isLocked, toggleLock, remoteSelections, remoteEditingMap, remoteDraggingIds, remoteDrawingPaths, chatMessages, emitChatMessage, emitCursor, emitSelection, emitTextEdit, emitStickyLock, emitStickyUnlock, emitObjectDrag, emitObjectDragEnd, emitObjectTransform, emitObjectTransformEnd, emitDrawingPath, emitDrawingEnd, createObject, updateObject, deleteObject, bgColor, backgroundPattern, emitBackgroundChange } = useSupabaseBoard(
     userId,
     displayName,
     roomId
@@ -381,13 +379,14 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
         stageRef={stageRef}
         selectedStickyColor={selectedStickyColor}
         selectedShapeColor={selectedShapeColor}
-        backgroundPattern={backgroundPattern}
+        backgroundPattern={backgroundPattern as BackgroundPattern}
         bgColor={bgColor}
         penType={penType}
         penStrokeWidth={penStrokeWidth}
         onDrawingPath={emitDrawingPath}
         onDrawingEnd={emitDrawingEnd}
         remoteDrawingPaths={remoteDrawingPaths}
+        readOnly={effectiveReadOnly}
       />
 
       {readOnly ? (
@@ -627,7 +626,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
 
         <div style={{ width: 1, height: 24, background: "rgba(0,0,0,0.1)" }} />
 
-        <div ref={bgPickerRef} style={{ position: "relative" }}>
+        <div ref={bgPickerRef} style={{ position: "relative", opacity: effectiveReadOnly ? 0.5 : 1, pointerEvents: effectiveReadOnly ? "none" : "auto" }}>
           <button
             onClick={() => setShowBgPicker(!showBgPicker)}
             style={{
@@ -672,7 +671,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                   {["#f8fafc", "#ffffff", "#f1f5f9", "#e2e8f0", "#1e293b", "#0f172a", "#fef3c7", "#ecfccb", "#e0f2fe", "#fce7f3"].map((color) => (
                     <button
                       key={color}
-                      onClick={() => setBgColor(color)}
+                      onClick={() => emitBackgroundChange(color, backgroundPattern)}
                       title={color}
                       style={{
                         width: 28,
@@ -705,7 +704,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                   <input
                     type="color"
                     value={bgColor}
-                    onChange={(e) => setBgColor(e.target.value)}
+                    onChange={(e) => emitBackgroundChange(e.target.value, backgroundPattern)}
                     style={{ width: 24, height: 24, border: "none", borderRadius: 4, cursor: "pointer", padding: 0 }}
                   />
                   <span style={{ fontSize: 12, fontWeight: 600, color: "#4b5563" }}>Custom Color</span>
@@ -731,7 +730,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                   ]).map((opt) => (
                     <button
                       key={opt.value}
-                      onClick={() => setBackgroundPattern(opt.value)}
+                      onClick={() => emitBackgroundChange(bgColor, opt.value)}
                       title={opt.label}
                       style={{
                         padding: "5px 10px",
@@ -773,7 +772,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                   ]).map((opt) => (
                     <button
                       key={opt.value}
-                      onClick={() => { setBackgroundPattern(opt.value); setShowBgPicker(false); }}
+                      onClick={() => { emitBackgroundChange(bgColor, opt.value); setShowBgPicker(false); }}
                       style={{
                         padding: "6px 8px",
                         background: opt.color,
