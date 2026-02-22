@@ -5,8 +5,8 @@
  */
 export function extractRoomCode(roomId: string): string {
   const parts = roomId.split('-');
-  if (parts.length < 3) return '';
-  
+  if (parts.length < 3 || parts[0] !== 'room' || !/^\d+$/.test(parts[1])) return '';
+
   const lastPart = parts[parts.length - 1];
   return lastPart.substring(0, 6).toUpperCase();
 }

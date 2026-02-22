@@ -1071,7 +1071,7 @@ export class AIService {
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
       const response = await openai.chat.completions.create({
         model: 'gpt-4o',
-        max_tokens: 4096,
+        max_tokens: 1024,
         messages: conversationMessages,
         tools: openaiTools,
         tool_choice: 'auto',
@@ -1198,7 +1198,7 @@ export class AIService {
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
       const stream = await openai.chat.completions.create({
         model: 'gpt-4o',
-        max_tokens: 4096,
+        max_tokens: 1024,
         messages: conversationMessages,
         tools: openaiTools,
         tool_choice: 'auto',
