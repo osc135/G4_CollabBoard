@@ -4,7 +4,7 @@ import { Stage, Layer, Rect, Circle, Line, Text, Group, Shape, Transformer } fro
 import Konva from "konva";
 import type { BoardObject, Cursor, StickyNote, Shape as ShapeType, Textbox as TextboxType, Drawing } from "@collabboard/shared";
 
-export type Tool = "pan" | "sticky" | "rectangle" | "circle" | "line" | "drawing";
+export type Tool = "pan" | "sticky" | "text" | "rectangle" | "circle" | "line" | "drawing";
 export type BackgroundPattern =
   | "dots" | "lines" | "grid" | "none"
   | "blueprint" | "isometric" | "hex" | "lined"
@@ -1139,12 +1139,14 @@ const MemoLineObj = React.memo<MemoLineProps>(({
 interface MemoTextboxProps extends ObjectHandlers {
   obj: TextboxType;
   isSelected: boolean;
+  isEditing: boolean;
   shapeRefs: React.MutableRefObject<Record<string, Konva.Group>>;
+  onDblClick: (id: string, text: string) => void;
 }
 
 const MemoTextbox = React.memo<MemoTextboxProps>(({
-  obj, isSelected, shapeRefs,
-  onDragMove, onDragEnd, onSelect, onContextMenu, onTransform, onTransformEnd, onCursorMove, readOnly,
+  obj, isSelected, isEditing, shapeRefs,
+  onDragMove, onDragEnd, onSelect, onContextMenu, onTransform, onTransformEnd, onCursorMove, onDblClick, readOnly,
 }) => {
   const fontSize = obj.fontSize || 48;
   const color = obj.color || '#1a1a1a';
@@ -1176,6 +1178,7 @@ const MemoTextbox = React.memo<MemoTextboxProps>(({
         }
       }}
       onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onDblClick={(e) => { e.cancelBubble = true; onDblClick(obj.id, obj.text); }}
       onContextMenu={(e) => onContextMenu(e, obj.id)}
       onTransform={(e) => {
         const node = e.target;
@@ -1189,11 +1192,11 @@ const MemoTextbox = React.memo<MemoTextboxProps>(({
       }}
     >
       <Text
-        text={obj.text}
+        text={isEditing ? "" : obj.text}
         fontSize={fontSize}
         fontFamily="system-ui, -apple-system, 'Segoe UI', sans-serif"
         fontStyle="bold"
-        fill={isSelected ? '#3b82f6' : color}
+        fill={color}
         wrap="word"
         width={obj.width}
         height={obj.height}
@@ -1440,6 +1443,9 @@ export function Board({
   const [editingStickyId, setEditingStickyId] = useState<string | null>(null);
   const [editingStickyText, setEditingStickyText] = useState("");
   const stickyInputRef = useRef<HTMLTextAreaElement>(null);
+  const [editingTextboxId, setEditingTextboxId] = useState<string | null>(null);
+  const [editingTextboxText, setEditingTextboxText] = useState("");
+  const textboxInputRef = useRef<HTMLTextAreaElement>(null);
   const [hoveredStickyId, setHoveredStickyId] = useState<string | null>(null);
 
   const [selectionBox, setSelectionBox] = useState<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null);
@@ -1654,6 +1660,12 @@ export function Board({
     onStickyLockRef.current?.(id);
     setEditingStickyId(id);
     setEditingStickyText(text === "New note" ? "" : text);
+  }, []);
+
+  const stableOnTextboxDblClick = useCallback((id: string, text: string) => {
+    if (readOnly) return;
+    setEditingTextboxId(id);
+    setEditingTextboxText(text === "Text" ? "" : text);
   }, []);
 
   const stableOnStickyHoverEnter = useCallback((id: string) => {
@@ -1894,7 +1906,12 @@ export function Board({
       return () => clearTimeout(t);
     }
   }, [editingStickyId]);
-  // Removed textbox editing effect
+  useEffect(() => {
+    if (editingTextboxId) {
+      const t = setTimeout(() => textboxInputRef.current?.focus(), 50);
+      return () => clearTimeout(t);
+    }
+  }, [editingTextboxId]);
 
   useLayoutEffect(() => {
     const objIds = new Set(objects.map((o) => o.id));
@@ -2323,6 +2340,19 @@ export function Board({
           color: selectedShapeColor,
           rotation: 0,
         });
+      } else if (curTool === "text") {
+        const textColor = isDark(bgColor) ? '#ffffff' : '#1a1a1a';
+        onObjectCreateRef.current({
+          id: `text-${Date.now()}`,
+          type: "textbox",
+          x: pos.x,
+          y: pos.y,
+          text: "Text",
+          fontSize: 24,
+          color: textColor,
+          width: 200,
+          rotation: 0,
+        } as any);
       }
     },
     [selectedStickyColor, selectedShapeColor]
@@ -2345,6 +2375,11 @@ export function Board({
   editingStickyIdRef.current = editingStickyId;
   const editingStickyTextRef = useRef(editingStickyText);
   editingStickyTextRef.current = editingStickyText;
+
+  const editingTextboxIdRef = useRef(editingTextboxId);
+  editingTextboxIdRef.current = editingTextboxId;
+  const editingTextboxTextRef = useRef(editingTextboxText);
+  editingTextboxTextRef.current = editingTextboxText;
 
   const handleStickyBlur = useCallback(() => {
     const eid = editingStickyIdRef.current;
@@ -2419,6 +2454,77 @@ export function Board({
               whiteSpace: "pre-wrap",
             }}
             placeholder="Type your note…"
+            spellCheck={false}
+          />,
+          document.body
+        )
+      : null;
+
+  const handleTextboxBlur = useCallback(() => {
+    const eid = editingTextboxIdRef.current;
+    if (!eid) return;
+    const obj = objectMapRef.current.get(eid) as TextboxType | undefined;
+    if (obj) onObjectUpdateRef.current({ ...obj, text: editingTextboxTextRef.current });
+    setEditingTextboxId(null);
+  }, []);
+
+  const textboxObj = editingTextboxId ? (objectMap.get(editingTextboxId) as TextboxType | undefined) ?? null : null;
+  const textboxEditRect =
+    textboxObj && containerRect
+      ? {
+          left: containerRect.left + textboxObj.x * scale + position.x,
+          top: containerRect.top + textboxObj.y * scale + position.y,
+          width: Math.max(80, (textboxObj.width || 200) * scale),
+          height: Math.max(40, ((textboxObj.height || 60)) * scale),
+        }
+      : null;
+
+  const textboxEditor =
+    editingTextboxId && textboxObj && textboxEditRect
+      ? createPortal(
+          <textarea
+            ref={textboxInputRef}
+            value={editingTextboxText}
+            onChange={(e) => {
+              setEditingTextboxText(e.target.value);
+              if (editingTextboxId && onTextEdit) onTextEdit(editingTextboxId, e.target.value);
+            }}
+            onBlur={handleTextboxBlur}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setEditingTextboxText(textboxObj.text === "Text" ? "" : textboxObj.text);
+                setEditingTextboxId(null);
+                textboxInputRef.current?.blur();
+              }
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                textboxInputRef.current?.blur();
+              }
+            }}
+            style={{
+              position: "fixed",
+              left: textboxEditRect.left,
+              top: textboxEditRect.top,
+              width: textboxEditRect.width,
+              height: textboxEditRect.height,
+              padding: 0,
+              fontSize: (textboxObj.fontSize || 24) * scale,
+              lineHeight: 1.4,
+              fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif",
+              fontWeight: "bold",
+              background: "transparent",
+              color: textboxObj.color || '#1a1a1a',
+              border: "2px solid #3b82f6",
+              borderRadius: 4,
+              resize: "none",
+              overflow: "hidden",
+              outline: "none",
+              boxSizing: "border-box",
+              zIndex: 1000,
+              wordWrap: "break-word",
+              whiteSpace: "pre-wrap",
+            }}
+            placeholder="Type here…"
             spellCheck={false}
           />,
           document.body
@@ -2633,10 +2739,12 @@ export function Board({
                 key={obj.id}
                 obj={textObj}
                 isSelected={selectedIdsSet.has(obj.id)}
+                isEditing={editingTextboxId === obj.id}
                 shapeRefs={shapeRefs}
                 onDragMove={stableOnDragMove}
                 onDragEnd={stableOnDragEnd}
                 onSelect={stableOnSelect}
+                onDblClick={stableOnTextboxDblClick}
                 onContextMenu={handleObjectContextMenu}
                 onTransform={stableOnTransform}
                 onTransformEnd={stableOnTransformEnd}
@@ -2751,6 +2859,7 @@ export function Board({
       <MemoCursorLayer cursors={cursors} />
     </Stage>
     {stickyEditor}
+    {textboxEditor}
     {contextMenu && (
       <>
       <div
