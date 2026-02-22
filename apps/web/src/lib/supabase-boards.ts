@@ -14,7 +14,7 @@ interface Board {
 interface SupabaseBoardObject {
   id: string;
   board_id: string;
-  type: 'sticky' | 'rectangle' | 'circle' | 'textbox' | 'connector' | 'line' | 'drawing';
+  type: 'sticky' | 'rectangle' | 'circle' | 'textbox' | 'connector' | 'line' | 'drawing' | 'frame';
   x: number;
   y: number;
   width?: number;
@@ -370,6 +370,15 @@ export class SupabaseBoardService {
       };
     }
 
+    if (legacyObj.type === 'frame') {
+      return {
+        ...base,
+        width: legacyObj.width,
+        height: legacyObj.height,
+        text: legacyObj.title,
+      };
+    }
+
     return {
       ...base,
       width: legacyObj.width,
@@ -407,6 +416,21 @@ export class SupabaseBoardService {
         color: supabaseObj.color,
         strokeWidth: supabaseObj.stroke_width || 3,
         penType: supabaseObj.pen_type || 'pen',
+        ...(supabaseObj.z_index != null ? { zIndex: supabaseObj.z_index } : {}),
+      };
+    }
+
+    if (supabaseObj.type === 'frame') {
+      return {
+        id: supabaseObj.id,
+        type: 'frame',
+        x: supabaseObj.x,
+        y: supabaseObj.y,
+        width: supabaseObj.width,
+        height: supabaseObj.height,
+        rotation: supabaseObj.rotation,
+        title: supabaseObj.text,
+        color: supabaseObj.color,
         ...(supabaseObj.z_index != null ? { zIndex: supabaseObj.z_index } : {}),
       };
     }
