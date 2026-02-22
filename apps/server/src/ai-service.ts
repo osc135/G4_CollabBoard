@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { Langfuse } from 'langfuse';
 import type { BoardObject } from '@collabboard/shared';
+import { expandSwot, expandKanban, expandFlowchart } from './template-expander';
 import dotenv from 'dotenv';
 
 // Load environment variables
@@ -279,7 +280,7 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'create_objects_batch',
-    description: 'Create multiple objects in a single call. ALWAYS use this for flowcharts, diagrams, scenes, or any request needing more than 3 objects. Each object has a "type" field plus the same properties as the corresponding individual create tool.',
+    description: 'Create multiple objects in a single call. Use for scenes, drawings, or any multi-object request that is NOT a SWOT analysis, kanban board, or flowchart (use their dedicated tools instead). Each object has a "type" field plus the same properties as the corresponding individual create tool.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -318,6 +319,80 @@ const tools: Anthropic.Tool[] = [
         },
       },
       required: ['objects'],
+    },
+  },
+  {
+    name: 'create_swot',
+    description: 'Create a SWOT analysis on the board. Provide the items for each quadrant — positioning and layout are handled automatically. ALWAYS use this tool for SWOT analyses instead of create_objects_batch.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        title: { type: 'string', description: 'Optional title (e.g. "SWOT Analysis for Acme Corp")' },
+        strengths: { type: 'array', items: { type: 'string' }, description: 'List of strengths' },
+        weaknesses: { type: 'array', items: { type: 'string' }, description: 'List of weaknesses' },
+        opportunities: { type: 'array', items: { type: 'string' }, description: 'List of opportunities' },
+        threats: { type: 'array', items: { type: 'string' }, description: 'List of threats' },
+      },
+      required: ['strengths', 'weaknesses', 'opportunities', 'threats'],
+    },
+  },
+  {
+    name: 'create_kanban',
+    description: 'Create a kanban board on the board. Provide column names and cards — positioning and layout are handled automatically. ALWAYS use this tool for kanban boards instead of create_objects_batch.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        title: { type: 'string', description: 'Optional board title' },
+        columns: {
+          type: 'array',
+          description: 'Array of columns, each with a name and cards',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'Column header (e.g. "To Do", "In Progress", "Done")' },
+              cards: { type: 'array', items: { type: 'string' }, description: 'Card texts in this column' },
+            },
+            required: ['name', 'cards'],
+          },
+        },
+      },
+      required: ['columns'],
+    },
+  },
+  {
+    name: 'create_flowchart',
+    description: 'Create a flowchart or process diagram on the board. Provide nodes and edges — positioning is handled automatically by the layout engine. ALWAYS use this tool for flowcharts instead of create_objects_batch.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        nodes: {
+          type: 'array',
+          description: 'Array of nodes in the flowchart',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'Unique ID for this node (used in edges)' },
+              text: { type: 'string', description: 'Text label for the node' },
+              color: { type: 'string', description: 'Node color (hex code, default #ffeb3b)' },
+            },
+            required: ['id', 'text'],
+          },
+        },
+        edges: {
+          type: 'array',
+          description: 'Array of edges connecting nodes',
+          items: {
+            type: 'object',
+            properties: {
+              from: { type: 'string', description: 'Source node ID' },
+              to: { type: 'string', description: 'Target node ID' },
+              label: { type: 'string', description: 'Optional edge label (e.g. "YES", "NO")' },
+            },
+            required: ['from', 'to'],
+          },
+        },
+      },
+      required: ['nodes', 'edges'],
     },
   },
   {
@@ -448,6 +523,163 @@ const openaiTools: OpenAI.Chat.Completions.ChatCompletionTool[] = tools.map(t =>
 // Export for testing
 export { isBoardRelated, classifyTask, REFUSAL_MESSAGE };
 
+// Expand a template tool call into an array of primitive actions.
+// Returns null if the tool is not a template tool.
+function expandTemplateToolCall(toolName: string, args: any): { tool: string; arguments: any }[] | null {
+  if (toolName === 'create_swot') {
+    return expandSwot({
+      title: args.title,
+      strengths: args.strengths || [],
+      weaknesses: args.weaknesses || [],
+      opportunities: args.opportunities || [],
+      threats: args.threats || [],
+    });
+  }
+  if (toolName === 'create_kanban') {
+    return expandKanban({
+      title: args.title,
+      columns: args.columns || [],
+    });
+  }
+  if (toolName === 'create_flowchart') {
+    return expandFlowchart({
+      nodes: args.nodes || [],
+      edges: args.edges || [],
+    });
+  }
+  return null;
+}
+
+// Detect when the AI ignores the dedicated tools and uses create_objects_batch
+// for SWOT/kanban anyway (by inspecting the batch contents), and auto-convert.
+function interceptBatchAsTemplate(args: any): { tool: string; arguments: any }[] | null {
+  const objects = args.objects as any[] | undefined;
+  if (!objects || objects.length < 5) return null;
+
+  // Detect SWOT: look for sticky notes whose text matches S/W/O/T categories
+  const texts = objects
+    .filter((o: any) => o.type === 'sticky_note' || o.type === 'text')
+    .map((o: any) => (o.text || '').toLowerCase());
+  const hasStrengths = texts.some((t: string) => /\bstrength/i.test(t));
+  const hasWeaknesses = texts.some((t: string) => /\bweakness/i.test(t));
+  const hasOpportunities = texts.some((t: string) => /\bopportunit/i.test(t));
+  const hasThreats = texts.some((t: string) => /\bthreat/i.test(t));
+
+  if (hasStrengths && hasWeaknesses && hasOpportunities && hasThreats) {
+    console.log('[template-intercept] Detected SWOT in create_objects_batch — converting to create_swot');
+    // Extract items per category from the batch
+    const categoryPatterns: [string, RegExp][] = [
+      ['strengths', /\bstrength/i],
+      ['weaknesses', /\bweakness/i],
+      ['opportunities', /\bopportunit/i],
+      ['threats', /\bthreat/i],
+    ];
+
+    // Find category header nodes
+    const catNodes = new Map<string, any>();
+    for (const [key, pattern] of categoryPatterns) {
+      const header = objects.find((o: any) =>
+        (o.type === 'sticky_note' || o.type === 'text') && pattern.test(o.text || '')
+      );
+      if (header) catNodes.set(key, header);
+    }
+
+    // Find title node (text with "swot" or "analysis")
+    const titleNode = objects.find((o: any) =>
+      (o.type === 'text' || o.type === 'sticky_note') &&
+      /swot|analysis/i.test(o.text || '') &&
+      !catNodes.has('strengths') // not a category header
+    );
+
+    // Build connector map: parent → children
+    const connectors = objects.filter((o: any) => o.type === 'connector');
+    const childrenOf = new Map<string, string[]>();
+    for (const c of connectors) {
+      const parent = c.startObjectId;
+      if (!childrenOf.has(parent)) childrenOf.set(parent, []);
+      childrenOf.get(parent)!.push(c.endObjectId);
+    }
+
+    // For each category, gather child sticky note texts
+    const result: Record<string, string[]> = { strengths: [], weaknesses: [], opportunities: [], threats: [] };
+    for (const [key] of categoryPatterns) {
+      const header = catNodes.get(key);
+      if (!header || !header.id) continue;
+      const childIds = childrenOf.get(header.id) || [];
+      for (const childId of childIds) {
+        const child = objects.find((o: any) => o.id === childId && o.type === 'sticky_note');
+        if (child && child.text) result[key].push(child.text);
+      }
+      // If no connectors found, try proximity: items that aren't headers/title/connectors/rects
+      if (result[key].length === 0) {
+        // Fall back: just distribute non-header sticky notes evenly
+      }
+    }
+
+    // If connector-based extraction found items, use template
+    const totalItems = Object.values(result).reduce((s, arr) => s + arr.length, 0);
+    if (totalItems > 0) {
+      return expandSwot({
+        title: titleNode?.text,
+        strengths: result.strengths,
+        weaknesses: result.weaknesses,
+        opportunities: result.opportunities,
+        threats: result.threats,
+      });
+    }
+
+    // Fallback: distribute all non-header/non-connector sticky notes evenly across categories
+    const contentNotes = objects.filter((o: any) => {
+      if (o.type !== 'sticky_note') return false;
+      const t = (o.text || '').toLowerCase();
+      return !categoryPatterns.some(([, p]) => p.test(t)) && !/swot|analysis/i.test(t);
+    });
+    const cats = ['strengths', 'weaknesses', 'opportunities', 'threats'];
+    for (let i = 0; i < contentNotes.length; i++) {
+      result[cats[i % 4]].push(contentNotes[i].text);
+    }
+    return expandSwot({
+      title: titleNode?.text,
+      strengths: result.strengths,
+      weaknesses: result.weaknesses,
+      opportunities: result.opportunities,
+      threats: result.threats,
+    });
+  }
+
+  // Detect kanban: look for column-like structure (headers with children)
+  const kanbanKeywords = /\b(to\s*do|in\s*progress|doing|done|backlog|review|todo|blocked|ready)\b/i;
+  const kanbanHeaders = objects.filter((o: any) =>
+    (o.type === 'sticky_note' || o.type === 'text') && kanbanKeywords.test(o.text || '')
+  );
+  if (kanbanHeaders.length >= 2) {
+    console.log('[template-intercept] Detected kanban in create_objects_batch — converting to create_kanban');
+    const connectors = objects.filter((o: any) => o.type === 'connector');
+    const childrenOf = new Map<string, string[]>();
+    for (const c of connectors) {
+      if (!childrenOf.has(c.startObjectId)) childrenOf.set(c.startObjectId, []);
+      childrenOf.get(c.startObjectId)!.push(c.endObjectId);
+    }
+
+    const titleNode = objects.find((o: any) =>
+      (o.type === 'text') && !kanbanKeywords.test(o.text || '') && /kanban|board/i.test(o.text || '')
+    );
+
+    const columns = kanbanHeaders.map((header: any) => {
+      const childIds = childrenOf.get(header.id) || [];
+      const cards = childIds
+        .map((id: string) => objects.find((o: any) => o.id === id))
+        .filter(Boolean)
+        .map((o: any) => o.text || '');
+      return { name: header.text, cards };
+    });
+
+    return expandKanban({ title: titleNode?.text, columns });
+  }
+
+  return null;
+}
+
 export class AIService {
   private trace: any = null;
 
@@ -571,10 +803,22 @@ export class AIService {
         for (const toolUse of toolUseBlocks) {
           const args = toolUse.input as any;
 
-          if (toolUse.name === 'create_objects_batch') {
-            for (const obj of (args.objects || [])) {
-              const { type, ...objArgs } = obj;
-              actions.push({ tool: `create_${type}`, arguments: objArgs });
+          // Template tools: expand into primitive actions
+          const expanded = expandTemplateToolCall(toolUse.name, args);
+          if (expanded) {
+            for (const action of expanded) {
+              actions.push(action);
+            }
+          } else if (toolUse.name === 'create_objects_batch') {
+            // Intercept SWOT/kanban built via batch and convert to template
+            const intercepted = interceptBatchAsTemplate(args);
+            if (intercepted) {
+              for (const action of intercepted) actions.push(action);
+            } else {
+              for (const obj of (args.objects || [])) {
+                const { type, ...objArgs } = obj;
+                actions.push({ tool: `create_${type}`, arguments: objArgs });
+              }
             }
           } else {
             actions.push({ tool: toolUse.name, arguments: args });
@@ -745,12 +989,24 @@ export class AIService {
       for (const toolUse of toolUseBlocks) {
         const args = toolUse.input as any;
 
-        if (toolUse.name === 'create_objects_batch') {
-          for (const obj of (args.objects || [])) {
-            const { type, ...objArgs } = obj;
-            const individualAction = { tool: `create_${type}`, arguments: objArgs };
-            actions.push(individualAction);
-            onAction(individualAction);
+        // Template tools: expand into primitive actions
+        const expanded = expandTemplateToolCall(toolUse.name, args);
+        if (expanded) {
+          for (const action of expanded) {
+            actions.push(action);
+            onAction(action);
+          }
+        } else if (toolUse.name === 'create_objects_batch') {
+          const intercepted = interceptBatchAsTemplate(args);
+          if (intercepted) {
+            for (const action of intercepted) { actions.push(action); onAction(action); }
+          } else {
+            for (const obj of (args.objects || [])) {
+              const { type, ...objArgs } = obj;
+              const individualAction = { tool: `create_${type}`, arguments: objArgs };
+              actions.push(individualAction);
+              onAction(individualAction);
+            }
           }
         } else {
           const action = { tool: toolUse.name, arguments: args };
@@ -861,10 +1117,21 @@ export class AIService {
           });
           continue;
         }
-        if (toolCall.function.name === 'create_objects_batch') {
-          for (const obj of (args.objects || [])) {
-            const { type, ...objArgs } = obj;
-            actions.push({ tool: `create_${type}`, arguments: objArgs });
+        // Template tools: expand into primitive actions
+        const expanded = expandTemplateToolCall(toolCall.function.name, args);
+        if (expanded) {
+          for (const action of expanded) {
+            actions.push(action);
+          }
+        } else if (toolCall.function.name === 'create_objects_batch') {
+          const intercepted = interceptBatchAsTemplate(args);
+          if (intercepted) {
+            for (const action of intercepted) actions.push(action);
+          } else {
+            for (const obj of (args.objects || [])) {
+              const { type, ...objArgs } = obj;
+              actions.push({ tool: `create_${type}`, arguments: objArgs });
+            }
           }
         } else {
           actions.push({ tool: toolCall.function.name, arguments: args });
@@ -1013,12 +1280,24 @@ export class AIService {
           });
           continue;
         }
-        if (tc.name === 'create_objects_batch') {
-          for (const obj of (args.objects || [])) {
-            const { type, ...objArgs } = obj;
-            const individualAction = { tool: `create_${type}`, arguments: objArgs };
-            actions.push(individualAction);
-            onAction(individualAction);
+        // Template tools: expand into primitive actions
+        const expanded = expandTemplateToolCall(tc.name, args);
+        if (expanded) {
+          for (const action of expanded) {
+            actions.push(action);
+            onAction(action);
+          }
+        } else if (tc.name === 'create_objects_batch') {
+          const intercepted = interceptBatchAsTemplate(args);
+          if (intercepted) {
+            for (const action of intercepted) { actions.push(action); onAction(action); }
+          } else {
+            for (const obj of (args.objects || [])) {
+              const { type, ...objArgs } = obj;
+              const individualAction = { tool: `create_${type}`, arguments: objArgs };
+              actions.push(individualAction);
+              onAction(individualAction);
+            }
           }
         } else {
           const action = { tool: tc.name, arguments: args };
@@ -1064,6 +1343,15 @@ export class AIService {
       }
       const parts = Object.entries(typeCounts).map(([t, c]) => `${c} ${t}${c > 1 ? 's' : ''}`);
       return `Created ${objects.length} objects (${parts.join(', ')}).`;
+    } else if (toolName === 'create_swot') {
+      const total = (args.strengths?.length || 0) + (args.weaknesses?.length || 0) + (args.opportunities?.length || 0) + (args.threats?.length || 0);
+      return `Created SWOT analysis with ${total} items across 4 quadrants.`;
+    } else if (toolName === 'create_kanban') {
+      const cols = args.columns?.length || 0;
+      const cards = (args.columns || []).reduce((s: number, c: any) => s + (c.cards?.length || 0), 0);
+      return `Created kanban board with ${cols} columns and ${cards} cards.`;
+    } else if (toolName === 'create_flowchart') {
+      return `Created flowchart with ${args.nodes?.length || 0} nodes and ${args.edges?.length || 0} edges.`;
     } else if (toolName.startsWith('create_')) {
       return `Created ${toolName.replace('create_', '')} at (${args.x ?? 0}, ${args.y ?? 0})${args.id ? ` with id "${args.id}"` : ''}.`;
     } else if (toolName === 'move_object') {
@@ -1131,12 +1419,13 @@ POSITIONING: x/y offsets are relative to the CENTER of the user's screen. (0,0) 
 - For non-flowchart requests (scenes, drawings, individual objects): provide x/y as usual.
 
 OBJECT SIZES:
-- Sticky notes default to 200x200 px but you can set width/height. Use width=150, height=80 for flowchart nodes.
+- Sticky notes default to 200x200 px for regular notes. For flowchart/diagram nodes, set width=150, height=80 — the client will auto-size based on text content.
 - Rectangles default to 120x80 but you can set width/height. For background sections, use 400-500px wide.
 - Text labels auto-size based on content. Set width to control wrapping.
+- IMPORTANT: For flowchart nodes (via create_flowchart), the tool handles sizing automatically.
 
 PLANNING (CRITICAL): Before making ANY tool calls for a scene or complex request, plan your layout internally.
-DO NOT write planning text in your response — go directly to your create_objects_batch tool call.
+DO NOT write planning text in your response — go directly to your tool call.
 Only write a brief summary AFTER all objects are created.
 
 BACKGROUNDS: When creating background or environment elements (sky, ground, water, floors):
@@ -1154,34 +1443,39 @@ LAYERING: Use the zIndex parameter (0–100) to control which objects appear in 
 
 Choose colors that make sense (e.g. white for snow, brown for wood, blue for ice).
 
-CONNECTORS & FLOWCHARTS:
-- For flowcharts and diagrams, use sticky_note for nodes (they display text). Do NOT use rectangles for labeled nodes — rectangles don't show text.
-- EVERY node in a chart MUST be connected. No orphan nodes. If you create N nodes, you MUST create at least N-1 connectors. A chart without connectors between every step is broken.
-- Create ALL nodes first with custom IDs, then create ALL connectors. In a batch, list all nodes first, then all connectors.
-- Use orthogonal style for flowcharts, curved for organic diagrams, straight for simple arrows.
-- Example flowchart (3 nodes = 2 connectors, NO x/y — layout is automatic):
-  { type: "sticky_note", id: "step1", text: "Start", color: "#4caf50", width: 150, height: 80 },
-  { type: "sticky_note", id: "step2", text: "Process", color: "#ffeb3b", width: 150, height: 80 },
-  { type: "sticky_note", id: "step3", text: "End", color: "#f44336", width: 150, height: 80 },
-  { type: "connector", startObjectId: "step1", endObjectId: "step2", style: "orthogonal" },
-  { type: "connector", startObjectId: "step2", endObjectId: "step3", style: "orthogonal" }
-- Anchors: top, right, bottom, left, center. Default: startAnchor="bottom", endAnchor="top" for top-to-bottom flows.
+DEDICATED TEMPLATE TOOLS (CRITICAL):
+- For SWOT analyses: ALWAYS use create_swot. Provide title plus strengths/weaknesses/opportunities/threats arrays. Layout is fully automatic.
+- For kanban boards: ALWAYS use create_kanban. Provide columns with name and cards. Layout is fully automatic.
+- For flowcharts/diagrams: ALWAYS use create_flowchart. Provide nodes (id, text, color) and edges (from, to, label). Layout is fully automatic via ELK.
+- NEVER use create_objects_batch for SWOT, kanban, or flowcharts — the dedicated tools produce pixel-perfect layouts.
+
+CONNECTORS & FLOWCHARTS (via create_flowchart):
+- Node text should be SHORT and descriptive.
+- EVERY node must be connected. For N nodes, provide at least N-1 edges.
+- Use color to distinguish node types: green (#4caf50) for start, yellow (#ffeb3b) for process, red (#f44336) for end, blue (#2196f3) for decisions.
+- Use edge labels for decision branches (e.g. "YES", "NO").
 
 TEXT & WORDS: To display readable text, titles, labels, captions, or any words on the board, use the create_text tool. It renders clean, readable text at any size. Use fontSize 24-32 for small labels, 48-72 for titles, 96+ for huge headings. You can also use sticky notes for text that belongs on a note card. You MAY still use shapes (rectangles, lines, circles) to draw artistic/decorative lettering if the user specifically asks for it — but for normal readable text, always prefer create_text.
 
 BATCH CREATION (CRITICAL FOR SPEED):
-For ANY request that creates more than 3 objects (flowcharts, diagrams, scenes, SWOT/kanban layouts, drawings, etc.),
+For ANY request that creates more than 3 objects (scenes, drawings, etc.) — but NOT SWOT/kanban/flowcharts (use their dedicated tools) —
 you MUST use create_objects_batch to create ALL objects in a single tool call. This is dramatically faster.
 Each object in the array has a "type" field (sticky_note, rectangle, circle, line, text, connector)
 plus the same properties as the corresponding individual create tool.
 Create ALL objects for the entire request in ONE batch call. Connectors can reference IDs of objects earlier in the same batch.
 Do NOT output planning text — go straight to the tool call. Output only a brief summary after.
 
+TOOL SELECTION (CRITICAL — read carefully):
+- SWOT analysis → ALWAYS use create_swot. NEVER use create_objects_batch for SWOT.
+- Kanban board → ALWAYS use create_kanban. NEVER use create_objects_batch for kanban.
+- Flowchart / diagram / process → ALWAYS use create_flowchart. NEVER use create_objects_batch for flowcharts.
+- Scenes, drawings, multiple shapes → use create_objects_batch.
+- Single object → use the individual create tool.
+
 RESPONSE RULES:
 - ALWAYS call tools to create objects. NEVER just describe what you would do.
-- For multi-object creations, use create_objects_batch in one tool call. Fulfill the ENTIRE request — never ask "should I continue?".
-- For charts/flowcharts: EVERY node must have a connector. Double-check your batch has N-1 connectors for N nodes before submitting.
-- After creating objects, write only a brief summary (e.g. "Here's your flowchart!").
+- Fulfill the ENTIRE request — never ask "should I continue?".
+- After creating objects, write only a brief summary (e.g. "Here's your SWOT analysis!").
 - NEVER ask for confirmation. Just do it.
 - Use bulk_update_objects for batch edits, organize_board for rearranging.`;
   }
