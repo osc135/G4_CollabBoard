@@ -379,14 +379,16 @@ function getAnchorPoint(obj: BoardObject, anchor: "top" | "right" | "bottom" | "
                  obj.type === "rectangle" || obj.type === "circle" ? obj.height :
                  obj.type === "line" ? 100 : 0;
 
-  const centerX = obj.x + width / 2;
-  const centerY = obj.y + height / 2;
-  
+  // Stickies/textboxes use top-left origin; rectangles/circles use center origin
+  const isCenterOrigin = obj.type === "rectangle" || obj.type === "circle";
+  const centerX = isCenterOrigin ? obj.x : obj.x + width / 2;
+  const centerY = isCenterOrigin ? obj.y : obj.y + height / 2;
+
   switch (anchor) {
-    case "top": return { x: centerX, y: obj.y };
-    case "right": return { x: obj.x + width, y: centerY };
-    case "bottom": return { x: centerX, y: obj.y + height };
-    case "left": return { x: obj.x, y: centerY };
+    case "top": return { x: centerX, y: centerY - height / 2 };
+    case "right": return { x: centerX + width / 2, y: centerY };
+    case "bottom": return { x: centerX, y: centerY + height / 2 };
+    case "left": return { x: centerX - width / 2, y: centerY };
     case "center": return { x: centerX, y: centerY };
     default: return { x: centerX, y: centerY };
   }
@@ -431,16 +433,18 @@ function getBestPerimeterPoint(obj: BoardObject, targetPoint: { x: number; y: nu
                  obj.type === "rectangle" || obj.type === "circle" ? obj.height :
                  obj.type === "line" ? 100 : 0;
 
-  const objCenterX = obj.x + width / 2;
-  const objCenterY = obj.y + height / 2;
-  
+  // Stickies/textboxes use top-left origin; rectangles/circles use center origin
+  const isCenterOrigin = obj.type === "rectangle" || obj.type === "circle";
+  const objCenterX = isCenterOrigin ? obj.x : obj.x + width / 2;
+  const objCenterY = isCenterOrigin ? obj.y : obj.y + height / 2;
+
   // Vector from object center to target
   const dx = targetPoint.x - objCenterX;
   const dy = targetPoint.y - objCenterY;
-  
+
   // Handle edge case where target is at center
   if (dx === 0 && dy === 0) {
-    return { x: obj.x + width, y: objCenterY }; // Default to right edge
+    return { x: objCenterX + width / 2, y: objCenterY }; // Default to right edge
   }
   
   // For circles, use radius-based calculation
@@ -574,9 +578,14 @@ function findObjectAtPoint(objects: BoardObject[], point: { x: number; y: number
                    obj.type === "rectangle" || obj.type === "circle" ? obj.height :
                    obj.type === "line" ? 100 : 0;
 
+    // Stickies/textboxes use top-left origin; rectangles/circles use center origin
+    const isCenterOrigin = obj.type === "rectangle" || obj.type === "circle";
+    const left = isCenterOrigin ? obj.x - width / 2 : obj.x;
+    const top = isCenterOrigin ? obj.y - height / 2 : obj.y;
+
     const padding = 10;
-    if (point.x >= obj.x - padding && point.x <= obj.x + width + padding &&
-        point.y >= obj.y - padding && point.y <= obj.y + height + padding) {
+    if (point.x >= left - padding && point.x <= left + width + padding &&
+        point.y >= top - padding && point.y <= top + height + padding) {
       return obj;
     }
   }
@@ -1767,12 +1776,13 @@ export function Board({
         return !(dMaxX < left || dMinX > right || dMaxY < top || dMinY > bottom);
       }
 
-      const ox = obj.x;
-      const oy = obj.y;
       const ow = obj.type === 'sticky' ? obj.width :
                  (obj.type === 'rectangle' || obj.type === 'circle' || obj.type === 'line') ? obj.width : 200;
       const oh = obj.type === 'sticky' ? obj.height :
                  (obj.type === 'rectangle' || obj.type === 'circle' || obj.type === 'line') ? obj.height : 100;
+      const isCenterOrigin = obj.type === 'rectangle' || obj.type === 'circle';
+      const ox = isCenterOrigin ? obj.x - ow / 2 : obj.x;
+      const oy = isCenterOrigin ? obj.y - oh / 2 : obj.y;
 
       return !(ox + ow < left || ox > right || oy + oh < top || oy > bottom);
     });
