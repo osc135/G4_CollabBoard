@@ -1138,14 +1138,13 @@ const MemoLineObj = React.memo<MemoLineProps>(({
 
 interface MemoTextboxProps extends ObjectHandlers {
   obj: TextboxType;
-  isSelected: boolean;
   isEditing: boolean;
   shapeRefs: React.MutableRefObject<Record<string, Konva.Group>>;
   onDblClick: (id: string, text: string) => void;
 }
 
 const MemoTextbox = React.memo<MemoTextboxProps>(({
-  obj, isSelected, isEditing, shapeRefs,
+  obj, isEditing, shapeRefs,
   onDragMove, onDragEnd, onSelect, onContextMenu, onTransform, onTransformEnd, onCursorMove, onDblClick, readOnly,
 }) => {
   const fontSize = obj.fontSize || 48;
@@ -2738,7 +2737,6 @@ export function Board({
               <MemoTextbox
                 key={obj.id}
                 obj={textObj}
-                isSelected={selectedIdsSet.has(obj.id)}
                 isEditing={editingTextboxId === obj.id}
                 shapeRefs={shapeRefs}
                 onDragMove={stableOnDragMove}
