@@ -2374,10 +2374,10 @@ export function Board({
               target.style.height = originalHeight;
               
               // Calculate the needed height (with padding for pin area)
-              const neededHeight = Math.max(80, Math.ceil((scrollHeight / scale) + 32));
-              
-              // Update if height needs to change (expand or shrink)
-              if (neededHeight !== stickyObj.height) {
+              const neededHeight = Math.ceil((scrollHeight / scale) + 32);
+
+              // Only grow when text overflows the current sticky height
+              if (neededHeight > stickyObj.height) {
                 onObjectUpdate({ ...stickyObj, height: neededHeight });
               }
             }}
