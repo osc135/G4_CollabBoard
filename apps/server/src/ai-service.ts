@@ -17,7 +17,7 @@ const BOARD_KEYWORDS = [
   'color', 'colour', 'change color', 'recolor',
   // objects
   'sticky', 'note', 'notes', 'rectangle', 'rect', 'circle', 'line', 'shape',
-  'square', 'box', 'oval', 'arrow', 'star', 'triangle',
+  'square', 'box', 'oval', 'arrow', 'star', 'triangle', 'connector', 'connect', 'flow',
   'text', 'label', 'card',
   // board concepts
   'board', 'canvas', 'whiteboard', 'workspace',
@@ -172,6 +172,7 @@ const tools: Anthropic.Tool[] = [
     input_schema: {
       type: 'object' as const,
       properties: {
+        id: { type: 'string', description: 'Optional custom ID for this object. Use when you need to reference it later (e.g. as a connector endpoint). Must be unique.' },
         text: { type: 'string', description: 'The text content of the sticky note' },
         color: { type: 'string', enum: ['#ffeb3b', '#4caf50', '#ff9800', '#f44336', '#2196f3', '#9c27b0'], description: 'The color of the sticky note' },
         x: { type: 'number', description: 'Horizontal offset from screen center (px). 0 = center.' },
@@ -187,6 +188,7 @@ const tools: Anthropic.Tool[] = [
     input_schema: {
       type: 'object' as const,
       properties: {
+        id: { type: 'string', description: 'Optional custom ID for this object. Use when you need to reference it later (e.g. as a connector endpoint). Must be unique.' },
         color: { type: 'string', description: 'Fill color (hex code)' },
         x: { type: 'number', description: 'Horizontal offset from screen center (px). 0 = center.' },
         y: { type: 'number', description: 'Vertical offset from screen center (px). 0 = center.' },
@@ -203,6 +205,7 @@ const tools: Anthropic.Tool[] = [
     input_schema: {
       type: 'object' as const,
       properties: {
+        id: { type: 'string', description: 'Optional custom ID for this object. Use when you need to reference it later (e.g. as a connector endpoint). Must be unique.' },
         color: { type: 'string', description: 'Fill color (hex code)' },
         x: { type: 'number', description: 'Horizontal offset from screen center (px). 0 = center.' },
         y: { type: 'number', description: 'Vertical offset from screen center (px). 0 = center.' },
@@ -218,6 +221,7 @@ const tools: Anthropic.Tool[] = [
     input_schema: {
       type: 'object' as const,
       properties: {
+        id: { type: 'string', description: 'Optional custom ID for this object. Use when you need to reference it later (e.g. as a connector endpoint). Must be unique.' },
         color: { type: 'string', description: 'Stroke color (hex code)' },
         x: { type: 'number', description: 'Horizontal offset from screen center (px) for line start.' },
         y: { type: 'number', description: 'Vertical offset from screen center (px) for line start.' },
@@ -234,15 +238,84 @@ const tools: Anthropic.Tool[] = [
     input_schema: {
       type: 'object' as const,
       properties: {
+        id: { type: 'string', description: 'Optional custom ID for this object. Use when you need to reference it later (e.g. as a connector endpoint). Must be unique.' },
         text: { type: 'string', description: 'The text content to display' },
-        fontSize: { type: 'number', description: 'Font size in px (default 48). Use 24-32 for labels, 48-72 for titles, 96+ for huge headings.' },
+        fontSize: { type: 'number', description: 'Font size in px (default 24). Use 14-18 for small labels, 20-28 for section headers, 32-48 for titles. ALWAYS set this explicitly.' },
         color: { type: 'string', description: 'Text color (hex code, default #1a1a1a)' },
         x: { type: 'number', description: 'Horizontal offset from screen center (px). 0 = center.' },
         y: { type: 'number', description: 'Vertical offset from screen center (px). 0 = center.' },
-        width: { type: 'number', description: 'Max width for text wrapping (optional, text auto-sizes if omitted)' },
+        width: { type: 'number', description: 'Max width for text wrapping. ALWAYS set this to prevent text overflow — e.g. 400-500 for titles, 200-300 for labels.' },
         zIndex: { type: 'number', description: zIndexDescription },
       },
       required: ['text'],
+    },
+  },
+  {
+    name: 'create_connector',
+    description: 'Create a connector (arrow/line) between two objects or points. Use this for flowcharts, diagrams, and any visual connections. Prefer this over create_line for connecting nodes.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'Optional custom ID for this connector.' },
+        startObjectId: { type: 'string', description: 'ID of the object to connect from. If provided, startX/startY are ignored.' },
+        endObjectId: { type: 'string', description: 'ID of the object to connect to. If provided, endX/endY are ignored.' },
+        startX: { type: 'number', description: 'Fallback start X offset from screen center (used if no startObjectId).' },
+        startY: { type: 'number', description: 'Fallback start Y offset from screen center (used if no startObjectId).' },
+        endX: { type: 'number', description: 'Fallback end X offset from screen center (used if no endObjectId).' },
+        endY: { type: 'number', description: 'Fallback end Y offset from screen center (used if no endObjectId).' },
+        startAnchor: { type: 'string', enum: ['top', 'right', 'bottom', 'left', 'center'], description: 'Which side of the start object to connect from (default "bottom").' },
+        endAnchor: { type: 'string', enum: ['top', 'right', 'bottom', 'left', 'center'], description: 'Which side of the end object to connect to (default "top").' },
+        style: { type: 'string', enum: ['straight', 'curved', 'orthogonal'], description: 'Connector routing style (default "orthogonal"). Use orthogonal for flowcharts.' },
+        color: { type: 'string', description: 'Stroke color (hex code, default "#333333").' },
+        strokeWidth: { type: 'number', description: 'Line thickness in px (default 2).' },
+        arrowEnd: { type: 'boolean', description: 'Show arrowhead at the end (default true).' },
+        label: { type: 'string', description: 'Text label for the connector (e.g. "YES", "NO"). Will be placed as a separate text object near the midpoint.' },
+        zIndex: { type: 'number', description: zIndexDescription },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'create_objects_batch',
+    description: 'Create multiple objects in a single call. ALWAYS use this for flowcharts, diagrams, scenes, or any request needing more than 3 objects. Each object has a "type" field plus the same properties as the corresponding individual create tool.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        objects: {
+          type: 'array',
+          description: 'Array of objects to create.',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ['sticky_note', 'rectangle', 'circle', 'line', 'text', 'connector'] },
+              id: { type: 'string' },
+              text: { type: 'string' },
+              color: { type: 'string' },
+              x: { type: 'number' },
+              y: { type: 'number' },
+              width: { type: 'number' },
+              height: { type: 'number' },
+              size: { type: 'number' },
+              fontSize: { type: 'number' },
+              zIndex: { type: 'number' },
+              startObjectId: { type: 'string' },
+              endObjectId: { type: 'string' },
+              startX: { type: 'number' },
+              startY: { type: 'number' },
+              endX: { type: 'number' },
+              endY: { type: 'number' },
+              startAnchor: { type: 'string', enum: ['top', 'right', 'bottom', 'left', 'center'] },
+              endAnchor: { type: 'string', enum: ['top', 'right', 'bottom', 'left', 'center'] },
+              style: { type: 'string', enum: ['straight', 'curved', 'orthogonal'] },
+              strokeWidth: { type: 'number' },
+              arrowEnd: { type: 'boolean' },
+              label: { type: 'string' },
+            },
+            required: ['type'],
+          },
+        },
+      },
+      required: ['objects'],
     },
   },
   {
@@ -496,10 +569,14 @@ export class AIService {
         for (const toolUse of toolUseBlocks) {
           const args = toolUse.input as any;
 
-          actions.push({
-            tool: toolUse.name,
-            arguments: args,
-          });
+          if (toolUse.name === 'create_objects_batch') {
+            for (const obj of (args.objects || [])) {
+              const { type, ...objArgs } = obj;
+              actions.push({ tool: `create_${type}`, arguments: objArgs });
+            }
+          } else {
+            actions.push({ tool: toolUse.name, arguments: args });
+          }
 
           const toolResult = this.buildToolResult(toolUse.name, args, boardObjects, objectSummary);
 
@@ -527,7 +604,7 @@ export class AIService {
       if (!message && actions.length > 0) {
         message = this.buildFallbackMessage(actions);
       } else if (!message) {
-        message = "Sorry, I wasn't able to do that. I can create sticky notes, rectangles, circles, and lines on your board.";
+        message = "Sorry, I wasn't able to do that. I can create sticky notes, rectangles, circles, lines, and connectors on your board.";
       }
 
       return {
@@ -665,11 +742,19 @@ export class AIService {
 
       for (const toolUse of toolUseBlocks) {
         const args = toolUse.input as any;
-        const action = { tool: toolUse.name, arguments: args };
-        actions.push(action);
 
-        // Stream action to client immediately
-        onAction(action);
+        if (toolUse.name === 'create_objects_batch') {
+          for (const obj of (args.objects || [])) {
+            const { type, ...objArgs } = obj;
+            const individualAction = { tool: `create_${type}`, arguments: objArgs };
+            actions.push(individualAction);
+            onAction(individualAction);
+          }
+        } else {
+          const action = { tool: toolUse.name, arguments: args };
+          actions.push(action);
+          onAction(action);
+        }
 
         const toolResult = this.buildToolResult(toolUse.name, args, boardObjects, objectSummary);
 
@@ -774,7 +859,14 @@ export class AIService {
           });
           continue;
         }
-        actions.push({ tool: toolCall.function.name, arguments: args });
+        if (toolCall.function.name === 'create_objects_batch') {
+          for (const obj of (args.objects || [])) {
+            const { type, ...objArgs } = obj;
+            actions.push({ tool: `create_${type}`, arguments: objArgs });
+          }
+        } else {
+          actions.push({ tool: toolCall.function.name, arguments: args });
+        }
 
         const toolResult = this.buildToolResult(toolCall.function.name, args, boardObjects, objectSummary);
 
@@ -796,7 +888,7 @@ export class AIService {
     if (!message && actions.length > 0) {
       message = this.buildFallbackMessage(actions);
     } else if (!message) {
-      message = "Sorry, I wasn't able to do that. I can create sticky notes, rectangles, circles, and lines on your board.";
+      message = "Sorry, I wasn't able to do that. I can create sticky notes, rectangles, circles, lines, and connectors on your board.";
     }
 
     return { message, actions };
@@ -919,11 +1011,18 @@ export class AIService {
           });
           continue;
         }
-        const action = { tool: tc.name, arguments: args };
-        actions.push(action);
-
-        // Stream action to client immediately
-        onAction(action);
+        if (tc.name === 'create_objects_batch') {
+          for (const obj of (args.objects || [])) {
+            const { type, ...objArgs } = obj;
+            const individualAction = { tool: `create_${type}`, arguments: objArgs };
+            actions.push(individualAction);
+            onAction(individualAction);
+          }
+        } else {
+          const action = { tool: tc.name, arguments: args };
+          actions.push(action);
+          onAction(action);
+        }
 
         const toolResult = this.buildToolResult(tc.name, args, boardObjects, objectSummary);
 
@@ -951,8 +1050,20 @@ export class AIService {
       return `Cleared all ${boardObjects.length} objects from the board.`;
     } else if (toolName === 'delete_object') {
       return `Deleted object ${args.id}.`;
+    } else if (toolName === 'create_connector') {
+      const from = args.startObjectId || `(${args.startX ?? 0}, ${args.startY ?? 0})`;
+      const to = args.endObjectId || `(${args.endX ?? 0}, ${args.endY ?? 0})`;
+      return `Created connector from ${from} to ${to}${args.id ? ` with id "${args.id}"` : ''}.`;
+    } else if (toolName === 'create_objects_batch') {
+      const objects = args.objects || [];
+      const typeCounts: Record<string, number> = {};
+      for (const obj of objects) {
+        typeCounts[obj.type] = (typeCounts[obj.type] || 0) + 1;
+      }
+      const parts = Object.entries(typeCounts).map(([t, c]) => `${c} ${t}${c > 1 ? 's' : ''}`);
+      return `Created ${objects.length} objects (${parts.join(', ')}).`;
     } else if (toolName.startsWith('create_')) {
-      return `Created ${toolName.replace('create_', '')} at (${args.x ?? 0}, ${args.y ?? 0}).`;
+      return `Created ${toolName.replace('create_', '')} at (${args.x ?? 0}, ${args.y ?? 0})${args.id ? ` with id "${args.id}"` : ''}.`;
     } else if (toolName === 'move_object') {
       return `Moved object ${args.id} to (${args.x}, ${args.y}).`;
     } else if (toolName === 'update_object') {
@@ -983,11 +1094,11 @@ export class AIService {
     return `You are a whiteboard-only AI assistant for a collaborative board app. Your SOLE purpose is to help users create, organize, and manage objects on their whiteboard.
 
 STRICT SCOPE — You must ONLY respond to requests related to the whiteboard:
-- Creating objects (sticky notes, text labels, rectangles, circles, lines)
+- Creating objects (sticky notes, text labels, rectangles, circles, lines, connectors)
 - Editing existing objects (changing color, text, size, layering)
 - Organizing, arranging, or laying out board objects
 - Analyzing or describing what's currently on the board
-- Drawing scenes, diagrams, or visual compositions on the board
+- Drawing scenes, diagrams, flowcharts, or visual compositions on the board
 - Deleting objects or clearing the board
 - Answering questions about what you can do on the board
 
@@ -1013,8 +1124,14 @@ ${objectSummary || '(empty board)'}
 
 POSITIONING: x/y offsets are relative to the CENTER of the user's screen. (0,0) = screen center.
 - x: positive = right, negative = left. y: positive = down, negative = up.
-- x/y is the TOP-LEFT corner of the object's bounding box.
-- The screen is roughly 1200px wide and 800px tall, so offsets can range from -600 to 600 horizontally and -400 to 400 vertically.
+- x/y is the TOP-LEFT corner of the object's bounding box for ALL object types.
+- The screen is roughly 1920px wide and 1080px tall, so offsets can range from -960 to 960 horizontally and -540 to 540 vertically. USE THE FULL SPACE.
+
+OBJECT SIZES (CRITICAL):
+- Sticky notes are ALWAYS 200x200 px. You CANNOT change their size. Account for this when spacing.
+- Rectangles default to 120x80 but you can set width/height. For background sections, use 400-500px wide.
+- Text labels auto-size based on content. Set width to control wrapping.
+- When creating a SWOT, Kanban, or grid layout, the background rectangles should be at least 450x350 each, and stickies (200x200) should be placed well inside them with 20-40px margins.
 
 CENTERING & ALIGNMENT (CRITICAL):
 - To visually center an object on the vertical axis (x=0 line), set x = -(width/2) or x = -(size/2).
@@ -1024,12 +1141,9 @@ CENTERING & ALIGNMENT (CRITICAL):
 - For ALL scenes: pick a single vertical center line and align every object's x to it using the formula above. Symmetric features (eyes, arms) should be equally offset left and right from center.
 - ALWAYS compute the math explicitly before placing objects. Do not eyeball positions.
 
-PLANNING (CRITICAL): Before making ANY tool calls for a scene or complex request, you MUST first think step-by-step:
-1. List every object you need to create and its purpose
-2. Calculate exact x, y, width/height/size for EACH object using math
-3. Verify no unintended overlaps and that symmetric elements are mirrored correctly
-4. Then and ONLY then, make all tool calls
-Write your planning in your text response so the user can see your reasoning.
+PLANNING (CRITICAL): Before making ANY tool calls for a scene or complex request, plan your layout internally.
+DO NOT write planning text in your response — go directly to your create_objects_batch tool call.
+Only write a brief summary AFTER all objects are created.
 
 BACKGROUNDS: When creating background or environment elements (sky, ground, water, floors):
 - Make them large enough to fill the visible area: at least width=1400, height=900 for a full background
@@ -1038,10 +1152,12 @@ BACKGROUNDS: When creating background or environment elements (sky, ground, wate
 
 SPACING: When placing multiple objects, you MUST leave enough space so they do NOT overlap unintentionally.
 - A circle with size=200 occupies 200x200px from its top-left corner.
+- STICKY NOTES are 200x200px EACH — space them at least 230px apart (200 + 30px gap).
 - To stack circles vertically with slight overlap (snowman style): nextY = prevY + prevSize - overlapAmount.
-- For side-by-side objects, offset x by at least the width of the left object plus a gap.
+- For side-by-side objects, offset x by at least the width of the left object plus 30px gap.
 - Think through your layout BEFORE making tool calls. Sketch the math: top-left corner + size = bottom-right corner.
 - Make objects BIG and bold — use the full viewport space. Characters should be at least 300-400px tall.
+- Use 30px as the MINIMUM gap between any two objects. Never place objects edge-to-edge.
 
 LAYERING: Use the zIndex parameter (0–100) to control which objects appear in front. Lower = behind, higher = in front.
 - 0–10: background surfaces (floors, rinks, sky, tables)
@@ -1053,14 +1169,37 @@ LAYERING: Use the zIndex parameter (0–100) to control which objects appear in 
 
 Choose colors that make sense (e.g. white for snow, brown for wood, blue for ice).
 
+CONNECTORS & FLOWCHARTS:
+- For flowcharts, diagrams, and process flows, create nodes first with custom IDs (using the "id" parameter), then use create_connector to link them.
+- Use orthogonal style for clean right-angle routing in flowcharts. Use curved for organic diagrams. Use straight for simple arrows.
+- To add YES/NO labels on connectors, use the "label" parameter — it creates a small text object near the midpoint automatically.
+- Example flowchart workflow:
+  1. create_rectangle with id="start", text via create_text on top
+  2. create_rectangle with id="process1"
+  3. create_connector with startObjectId="start", endObjectId="process1", style="orthogonal"
+  4. For decision diamonds, use a rotated rectangle or a small rectangle with a "?" label.
+- Anchors control which side of the object the connector attaches to: top, right, bottom, left, center.
+  Default: startAnchor="bottom", endAnchor="top" (good for top-to-bottom flowcharts).
+  Use startAnchor="right", endAnchor="left" for left-to-right flows.
+
 TEXT & WORDS: To display readable text, titles, labels, captions, or any words on the board, use the create_text tool. It renders clean, readable text at any size. Use fontSize 24-32 for small labels, 48-72 for titles, 96+ for huge headings. You can also use sticky notes for text that belongs on a note card. You MAY still use shapes (rectangles, lines, circles) to draw artistic/decorative lettering if the user specifically asks for it — but for normal readable text, always prefer create_text.
+
+BATCH CREATION (CRITICAL FOR SPEED):
+For ANY request that creates more than 3 objects (flowcharts, diagrams, scenes, SWOT/kanban layouts, drawings, etc.),
+you MUST use create_objects_batch to create ALL objects in a single tool call. This is dramatically faster.
+Each object in the array has a "type" field (sticky_note, rectangle, circle, line, text, connector)
+plus the same properties as the corresponding individual create tool.
+Create ALL objects for the entire request in ONE batch call. Connectors can reference IDs of objects earlier in the same batch.
+Do NOT output planning text — go straight to the tool call. Output only a brief summary after.
 
 RESPONSE RULES:
 - When the user asks you to create or draw ANYTHING, you MUST call the appropriate tools. NEVER just describe what you would do — actually do it.
-- COMPLETE EVERY SINGLE TOOL CALL before writing your final response text. Do NOT write "Now let me build..." or "Let me create the next part..." and stop — you MUST make ALL tool calls for the ENTIRE scene in one go. If you planned 30 objects, call 30 tools. Never stop partway through.
+- COMPLETE EVERY SINGLE TOOL CALL before writing your final response text. Do NOT write "Now let me build..." or "Let me create the next part..." and stop — you MUST make ALL tool calls for the ENTIRE scene in one go.
+- For multi-object creations, use create_objects_batch to create everything in one tool call.
+- Never stop partway through.
 - COMPLETE THE FULL REQUEST: If the user asks for 100 sticky notes, create ALL 100. If they ask for 50 circles, create ALL 50. NEVER create a partial batch and ask "would you like me to continue?" or "shall I add more?". Fulfill the ENTIRE quantity in one go by making multiple tool calls. There is NO limit on how many objects you can create.
 - After creating ALL objects, briefly describe what you made (e.g. "Here's a 3x3 grid of blue rectangles!" or "Here's your snowman with a top hat and scarf!"). Only write this summary AFTER all tool calls are done.
-- If the user asks for something you cannot do with the available tools, say "Sorry, I'm unable to do that — I can create sticky notes, text labels, rectangles, circles, and lines, delete objects, or clear the board."
+- If the user asks for something you cannot do with the available tools, say "Sorry, I'm unable to do that — I can create sticky notes, text labels, rectangles, circles, lines, and connectors, delete objects, or clear the board."
 - NEVER respond with just "I can help you with that" — either create the objects or explain why you can't.
 - NEVER ask for confirmation before fulfilling a request. Just do it.
 - MULTI-TASK: When the user asks for multiple things in one message (e.g. "organize the board and tell me what's on it", "create a red circle and delete the blue one"), handle ALL requests by calling multiple tools in a single response. Do not only address one part of the request.
@@ -1070,6 +1209,21 @@ RESPONSE RULES:
 - To edit an existing object, use update_object with its ID and the fields to change.
 - To edit MANY objects at once (e.g. "change all stickies to blue"), use bulk_update_objects with an array of updates. This is much faster and more reliable than calling update_object many times.
 - To organize/arrange/tidy the WHOLE board, use organize_board — this is much faster and more reliable than calling move_object many times. Always prefer organize_board for bulk rearrangement.
+
+FRAMEWORK LAYOUTS (SWOT, Kanban, Retrospective, etc.):
+When creating structured layouts like SWOT analysis, kanban boards, or meeting notes:
+- Title: create_text with fontSize=32, width=900, centered at x=-450, y=-580
+- Section labels: create_text with fontSize=20, placed AT THE TOP of each background rectangle with 10px inset. Set width to match the background width.
+- Background rectangles: make them VERY LARGE to fit stickies comfortably. Remember stickies are 200x200 EACH.
+  - For 2 columns of stickies: width = 2*200 + 3*30(gaps) = 490px minimum, use 500px
+  - For 3 rows of stickies: height = label(40) + 3*200 + 4*30(gaps) = 760px minimum, use 780px
+- Stickies (200x200 each): place them in a grid INSIDE backgrounds with 30px padding from edges and 30px gaps between stickies
+- For a 2x2 grid (SWOT): left column x=-530, right column x=30, top row y=-500, bottom row y=310. Each background 500x780.
+- For a 3-column layout (Kanban/Retro): columns at x=-560, x=-170, x=220. Each background 370x780.
+- Leave a 30px gap between adjacent background rectangles.
+- ALWAYS set width on text labels so they don't overflow.
+- Use zIndex: backgrounds=0, stickies=5, labels=10, title=10
+- CRITICAL: double-check that every sticky fits fully inside its background rectangle. No sticky should extend beyond the background edge.
 
 EXAMPLE — "Draw a snowman":
 Planning: I need a sky background, snowy ground, and a snowman (3 stacked circles + eyes + nose + hat).
