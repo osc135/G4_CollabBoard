@@ -49,8 +49,8 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
   const [penStrokeWidth, setPenStrokeWidth] = useState<number>(3);
   const [showBgPicker, setShowBgPicker] = useState(false);
   const bgPickerRef = useRef<HTMLDivElement>(null);
-  const [panelOpen, setPanelOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'chat' | 'ai'>('chat');
+  const [panelOpen, setPanelOpen] = useState(!!aiPrompt);
+  const [activeTab, setActiveTab] = useState<'chat' | 'ai'>(aiPrompt ? 'ai' : 'chat');
   const [panelSize, setPanelSize] = useState({ width: 380, height: 480 });
   const isResizingRef = useRef(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -166,199 +166,6 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
       chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [chatMessages, chatTabVisible]);
-
-  // Auto-execute AI prompt from dashboard (without opening chat panel)
-  const aiPromptFired = useRef(false);
-  useEffect(() => {
-    if (!aiPrompt || !connected || aiPromptFired.current) return;
-    aiPromptFired.current = true;
-
-    const timer = setTimeout(async () => {
-      try {
-        // Get viewport center for positioning
-        let centerX = 400, centerY = 300;
-        if (stageRef.current) {
-          const stage = stageRef.current;
-          const scale = stage.scaleX() || 1;
-          const pos = stage.position() || { x: 0, y: 0 };
-          const width = stage.width() || window.innerWidth;
-          const height = stage.height() || window.innerHeight;
-          centerX = Math.round((-pos.x + width / 2) / scale);
-          centerY = Math.round((-pos.y + height / 2) / scale);
-        }
-
-        const apiBase = import.meta.env.VITE_API_URL || '';
-        // Transform object positions to be relative to viewport center
-        // so the AI sees the same coordinate space it outputs (0,0 = screen center)
-        const relativeObjects = objects.map(obj => ({
-          ...obj,
-          x: (obj as any).x !== undefined ? (obj as any).x - centerX : undefined,
-          y: (obj as any).y !== undefined ? (obj as any).y - centerY : undefined,
-        }));
-        const response = await fetch(`${apiBase}/api/ai/command`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            command: aiPrompt,
-            roomId,
-            viewport: { x: centerX, y: centerY },
-            history: [],
-            objects: relativeObjects,
-          }),
-        });
-
-        if (!response.ok) {
-          console.error('AI command failed:', response.status, response.statusText);
-          return;
-        }
-
-        const liveObjects = new Map<string, any>();
-        for (const obj of objects) {
-          liveObjects.set(obj.id, { ...obj });
-        }
-
-        const reader = response.body?.getReader();
-        if (!reader) return;
-
-        const decoder = new TextDecoder();
-        let buffer = '';
-        const offset = (val: number | undefined) => val ?? 0;
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              const event = JSON.parse(line);
-              if (event.type === 'action') {
-                const action = event.action;
-                const args = action.arguments;
-
-                if (action.tool === 'create_sticky_note') {
-                  const newObj = { id: args.id || `sticky-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, type: 'sticky' as const, x: centerX + offset(args.x), y: centerY + offset(args.y), width: 200, height: 200, rotation: 0, text: args.text || '', color: args.color || '#ffeb3b', zIndex: args.zIndex ?? 0 };
-                  liveObjects.set(newObj.id, newObj);
-                  createObject(newObj);
-                } else if (action.tool === 'create_rectangle') {
-                  const rw = args.width || 120;
-                  const rh = args.height || 80;
-                  const newObj = { id: args.id || `rect-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, type: 'rectangle' as const, x: centerX + offset(args.x) + rw / 2, y: centerY + offset(args.y) + rh / 2, width: rw, height: rh, color: args.color || '#2196f3', rotation: 0, zIndex: args.zIndex ?? 0 };
-                  liveObjects.set(newObj.id, newObj);
-                  createObject(newObj);
-                } else if (action.tool === 'create_circle') {
-                  const size = args.size || 80;
-                  const newObj = { id: args.id || `circle-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, type: 'circle' as const, x: centerX + offset(args.x) + size / 2, y: centerY + offset(args.y) + size / 2, width: size, height: size, color: args.color || '#4caf50', rotation: 0, zIndex: args.zIndex ?? 0 };
-                  liveObjects.set(newObj.id, newObj);
-                  createObject(newObj);
-                } else if (action.tool === 'create_line') {
-                  const newObj = { id: args.id || `line-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, type: 'line' as const, x: centerX + offset(args.x), y: centerY + offset(args.y), width: args.width || 200, height: args.height || 0, color: args.color || '#1a1a1a', rotation: 0, zIndex: args.zIndex ?? 0 };
-                  liveObjects.set(newObj.id, newObj);
-                  createObject(newObj);
-                } else if (action.tool === 'create_text') {
-                  const newObj = { id: args.id || `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, type: 'textbox' as const, x: centerX + offset(args.x), y: centerY + offset(args.y), text: args.text || '', fontSize: args.fontSize || 24, color: args.color || '#1a1a1a', width: args.width, rotation: 0, zIndex: args.zIndex ?? 0 };
-                  liveObjects.set(newObj.id, newObj);
-                  createObject(newObj);
-                } else if (action.tool === 'create_connector') {
-                  // Helper to compute anchor point on an object
-                  const getAnchorPoint = (obj: any, anchor: string): { x: number; y: number } => {
-                    const w = obj.width || 0;
-                    const h = obj.height || 0;
-                    let cx: number, cy: number;
-                    if (obj.type === 'sticky' || obj.type === 'textbox') {
-                      cx = obj.x + w / 2;
-                      cy = obj.y + h / 2;
-                    } else {
-                      cx = obj.x;
-                      cy = obj.y;
-                    }
-                    switch (anchor) {
-                      case 'top': return { x: cx, y: cy - h / 2 };
-                      case 'bottom': return { x: cx, y: cy + h / 2 };
-                      case 'left': return { x: cx - w / 2, y: cy };
-                      case 'right': return { x: cx + w / 2, y: cy };
-                      case 'center': default: return { x: cx, y: cy };
-                    }
-                  };
-                  let startPoint = { x: centerX + offset(args.startX), y: centerY + offset(args.startY) };
-                  if (args.startObjectId) {
-                    const startObj = liveObjects.get(args.startObjectId);
-                    if (startObj) startPoint = getAnchorPoint(startObj, args.startAnchor || 'bottom');
-                  }
-                  let endPoint = { x: centerX + offset(args.endX), y: centerY + offset(args.endY) };
-                  if (args.endObjectId) {
-                    const endObj = liveObjects.get(args.endObjectId);
-                    if (endObj) endPoint = getAnchorPoint(endObj, args.endAnchor || 'top');
-                  }
-                  const connectorObj = {
-                    id: args.id || `connector-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                    type: 'connector' as const,
-                    startObjectId: args.startObjectId || null,
-                    endObjectId: args.endObjectId || null,
-                    startPoint,
-                    endPoint,
-                    startAnchor: args.startAnchor || 'bottom',
-                    endAnchor: args.endAnchor || 'top',
-                    style: args.style || 'orthogonal',
-                    color: args.color || '#333333',
-                    strokeWidth: args.strokeWidth || 2,
-                    arrowEnd: args.arrowEnd !== false,
-                    zIndex: args.zIndex ?? 0,
-                  };
-                  liveObjects.set(connectorObj.id, connectorObj);
-                  createObject(connectorObj);
-                  if (args.label) {
-                    const midX = (startPoint.x + endPoint.x) / 2;
-                    const midY = (startPoint.y + endPoint.y) / 2;
-                    const labelObj = {
-                      id: `label-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                      type: 'textbox' as const,
-                      x: midX - 20,
-                      y: midY - 12,
-                      text: args.label,
-                      fontSize: 14,
-                      color: args.color || '#333333',
-                      width: 60,
-                      rotation: 0,
-                      zIndex: (args.zIndex ?? 0) + 1,
-                    };
-                    liveObjects.set(labelObj.id, labelObj);
-                    createObject(labelObj);
-                  }
-                } else if (action.tool === 'delete_object') {
-                  liveObjects.delete(args.id);
-                  deleteObject(args.id);
-                } else if (action.tool === 'clear_board') {
-                  for (const id of liveObjects.keys()) { deleteObject(id); }
-                  liveObjects.clear();
-                } else if (action.tool === 'update_object' || action.tool === 'move_object') {
-                  const existing = liveObjects.get(args.id);
-                  if (existing) {
-                    const updated = { ...existing, ...args };
-                    if (action.tool === 'move_object') { updated.x = centerX + offset(args.x); updated.y = centerY + offset(args.y); }
-                    liveObjects.set(args.id, updated);
-                    updateObject(updated);
-                  }
-                }
-              }
-            } catch { /* skip malformed lines */ }
-          }
-        }
-      } catch (err) {
-        console.error('AI initial prompt error:', err);
-      }
-
-      // Clean up URL param
-      searchParams.delete('ai');
-      setSearchParams(searchParams, { replace: true });
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [aiPrompt, connected]);
 
   // Auto-populate board from template
   const templateFired = useRef(false);
@@ -1738,7 +1545,12 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
               callbacks={{ createObject, updateObject, deleteObject }}
               stageRef={stageRef}
               objects={objects}
+              initialPrompt={aiPrompt || undefined}
               boardConnected={connected}
+              onInitialPromptConsumed={() => {
+                searchParams.delete('ai');
+                setSearchParams(searchParams, { replace: true });
+              }}
               isVisible={panelOpen && activeTab === 'ai'}
             />
           )}

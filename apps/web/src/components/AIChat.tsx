@@ -650,7 +650,7 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
   // Auto-trigger initial prompt (from "Build with AI" on dashboard)
   // Waits until the board connection is established so createObject works
   useEffect(() => {
-    if (!initialPrompt || !boardConnected || !isVisible || initialPromptFired.current) return;
+    if (!initialPrompt || !boardConnected || initialPromptFired.current) return;
     initialPromptFired.current = true;
 
     // Small delay after connection to ensure everything is stable
@@ -687,7 +687,7 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [initialPrompt, boardConnected, isVisible]);
+  }, [initialPrompt, boardConnected]);
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
