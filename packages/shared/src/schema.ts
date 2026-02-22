@@ -67,13 +67,27 @@ export const drawingSchema = z.object({
   zIndex: z.number().optional(),
 });
 
-export const boardObjectSchema = z.union([stickyNoteSchema, textboxSchema, shapeSchema, connectorSchema, drawingSchema]);
+export const frameSchema = z.object({
+  id: z.string().min(1, "id required"),
+  type: z.literal("frame"),
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+  title: z.string().optional(),
+  color: z.string(),
+  rotation: z.number().optional(),
+  zIndex: z.number().optional(),
+});
+
+export const boardObjectSchema = z.union([stickyNoteSchema, textboxSchema, shapeSchema, connectorSchema, drawingSchema, frameSchema]);
 
 export type StickyNote = z.infer<typeof stickyNoteSchema>;
 export type Textbox = z.infer<typeof textboxSchema>;
 export type Shape = z.infer<typeof shapeSchema>;
 export type Connector = z.infer<typeof connectorSchema>;
 export type Drawing = z.infer<typeof drawingSchema>;
+export type Frame = z.infer<typeof frameSchema>;
 export type BoardObject = z.infer<typeof boardObjectSchema>;
 
 export const boardStateSchema = z.object({

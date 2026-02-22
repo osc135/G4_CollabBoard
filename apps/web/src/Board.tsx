@@ -2,9 +2,9 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from "react-dom";
 import { Stage, Layer, Rect, Circle, Line, Text, Group, Shape, Transformer } from "react-konva";
 import Konva from "konva";
-import type { BoardObject, Cursor, StickyNote, Shape as ShapeType, Textbox as TextboxType, Drawing } from "@collabboard/shared";
+import type { BoardObject, Cursor, StickyNote, Shape as ShapeType, Textbox as TextboxType, Drawing, Frame as FrameType } from "@collabboard/shared";
 
-export type Tool = "pan" | "sticky" | "text" | "rectangle" | "circle" | "line" | "drawing";
+export type Tool = "pan" | "sticky" | "text" | "rectangle" | "circle" | "line" | "drawing" | "frame";
 export type BackgroundPattern =
   | "dots" | "lines" | "grid" | "none"
   | "blueprint" | "isometric" | "hex" | "lined"
@@ -573,9 +573,11 @@ function findObjectAtPoint(objects: BoardObject[], point: { x: number; y: number
 
     const width = obj.type === "sticky" ? obj.width :
                   obj.type === "rectangle" || obj.type === "circle" ? obj.width :
+                  obj.type === "frame" ? (obj as any).width :
                   obj.type === "line" ? 100 : 0;
     const height = obj.type === "sticky" ? obj.height :
                    obj.type === "rectangle" || obj.type === "circle" ? obj.height :
+                   obj.type === "frame" ? (obj as any).height :
                    obj.type === "line" ? 100 : 0;
 
     // Stickies/textboxes use top-left origin; rectangles/circles use center origin
@@ -1383,6 +1385,132 @@ const MemoConnector = React.memo<MemoConnectorProps>(({
   );
 });
 
+// ============= Helper: find children of a frame =============
+// An object is a child if any part of it overlaps with the frame.
+function getFrameChildren(objects: BoardObject[], frame: BoardObject): BoardObject[] {
+  if (frame.type !== "frame") return [];
+  const fx = frame.x;
+  const fy = frame.y;
+  const fw = (frame as any).width;
+  const fh = (frame as any).height;
+  return objects.filter((obj) => {
+    if (obj.type === "frame" || obj.type === "connector") return false;
+    if (obj.id === frame.id) return false;
+    const bounds = getObjectBounds(obj);
+    if (!bounds) return false;
+    // Standard AABB overlap test
+    return bounds.x < fx + fw && bounds.x + bounds.w > fx &&
+           bounds.y < fy + fh && bounds.y + bounds.h > fy;
+  });
+}
+
+// ============= Memoized Frame =============
+
+interface MemoFrameProps extends ObjectHandlers {
+  obj: FrameType;
+  isSelected: boolean;
+  shapeRefs: React.MutableRefObject<Record<string, Konva.Group>>;
+}
+
+const MemoFrame = React.memo<MemoFrameProps>(({
+  obj, isSelected, shapeRefs,
+  onDragMove, onDragEnd, onSelect, onContextMenu, onTransform, onTransformEnd, onCursorMove, readOnly,
+}) => {
+  const w = obj.width;
+  const h = obj.height;
+  const rot = obj.rotation ?? 0;
+  const title = obj.title ?? "Frame";
+
+  return (
+    <Group
+      key={obj.id}
+      ref={(el) => {
+        if (el) shapeRefs.current[obj.id] = el;
+      }}
+      x={obj.x + w / 2}
+      y={obj.y + h / 2}
+      offsetX={w / 2}
+      offsetY={h / 2}
+      rotation={rot}
+      draggable={!readOnly}
+      onDragMove={(e) => {
+        const newX = e.target.x() - w / 2;
+        const newY = e.target.y() - h / 2;
+        onDragMove(obj.id, newX, newY);
+        const stage = e.target.getStage();
+        if (stage) {
+          const point = stage.getRelativePointerPosition();
+          if (point) onCursorMove(point.x, point.y);
+        }
+      }}
+      onDragEnd={(e) => {
+        const newX = e.target.x() - w / 2;
+        const newY = e.target.y() - h / 2;
+        onDragEnd(obj.id, obj, newX, newY, e.target.rotation());
+        const stage = e.target.getStage();
+        if (stage) {
+          stage.setPointersPositions(e.evt);
+          const point = stage.getRelativePointerPosition();
+          if (point) onCursorMove(point.x, point.y);
+        }
+      }}
+      onTransform={(e) => {
+        const node = e.target;
+        onTransform(obj.id, node.x() - w / 2, node.y() - h / 2, node.rotation(), node.scaleX(), node.scaleY(), w, h);
+      }}
+      onTransformEnd={(e) => {
+        const node = e.target;
+        onTransformEnd(obj, node.scaleX(), node.scaleY(), node.rotation(), node.x(), node.y());
+        node.scaleX(1);
+        node.scaleY(1);
+      }}
+      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onContextMenu={(e) => onContextMenu(e, obj.id)}
+    >
+      {/* Frame background */}
+      <Rect
+        x={0}
+        y={0}
+        width={w}
+        height={h}
+        fill={obj.color + "0a"}
+        stroke={isSelected ? "#1e293b" : obj.color + "60"}
+        strokeWidth={isSelected ? 2.5 : 1.5}
+        cornerRadius={12}
+        perfectDrawEnabled={false}
+        shadowForStrokeEnabled={false}
+      />
+      {/* Title label */}
+      <Rect
+        x={0}
+        y={-28}
+        width={Math.min(title.length * 8.5 + 24, w)}
+        height={28}
+        fill={obj.color}
+        cornerRadius={[8, 8, 0, 0]}
+        shadowColor="rgba(0,0,0,0.15)"
+        shadowBlur={4}
+        shadowOffsetY={-1}
+        shadowOpacity={0.5}
+        perfectDrawEnabled={false}
+      />
+      <Text
+        x={12}
+        y={-22}
+        text={title}
+        fontSize={13}
+        fontFamily="system-ui, -apple-system, sans-serif"
+        fontStyle="600"
+        fill="rgba(255,255,255,0.95)"
+        width={Math.min(title.length * 8.5 + 24, w) - 24}
+        ellipsis
+        wrap="none"
+        listening={false}
+      />
+    </Group>
+  );
+});
+
 // ============= Memoized Cursor Layer =============
 
 interface MemoCursorLayerProps {
@@ -1546,6 +1674,8 @@ export function Board({
 
   // ============= O(1) selection lookup =============
   const selectedIdsSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
 
   // ============= Remote selection color map (objectId → color) =============
   const remoteSelectionMap = useMemo(() => {
@@ -1582,6 +1712,16 @@ export function Board({
     dragRafRef.current = null;
   }, []);
 
+  // ============= Frame drag: move children with the frame =============
+  const frameDragChildrenRef = useRef<{
+    frameId: string;
+    origX: number;   // frame's original data-model x (never mutated)
+    origY: number;   // frame's original data-model y (never mutated)
+    prevX: number;   // last drag position (updated each move for delta calc)
+    prevY: number;
+    childIds: string[];
+  } | null>(null);
+
   // ============= Stable callbacks for memoized children =============
   const stableOnDragMove = useCallback((id: string, x: number, y: number) => {
     draggingObjectRef.current = { id, x, y };
@@ -1590,6 +1730,38 @@ export function Board({
       dragRafRef.current = requestAnimationFrame(flushDragState);
     }
     onObjectDragRef.current?.(id, x, y);
+
+    // Frame drag: move children along with the frame
+    const obj = objectMapRef.current.get(id);
+    if (obj && obj.type === "frame") {
+      const fdc = frameDragChildrenRef.current;
+      if (!fdc || fdc.frameId !== id) {
+        // First drag move: compute children and store state
+        const children = getFrameChildren(objectsRef.current, obj);
+        frameDragChildrenRef.current = {
+          frameId: id,
+          origX: obj.x,
+          origY: obj.y,
+          prevX: obj.x,
+          prevY: obj.y,
+          childIds: children.map(c => c.id),
+        };
+      }
+      if (frameDragChildrenRef.current) {
+        const dx = x - frameDragChildrenRef.current.prevX;
+        const dy = y - frameDragChildrenRef.current.prevY;
+        frameDragChildrenRef.current.prevX = x;
+        frameDragChildrenRef.current.prevY = y;
+        // Move child Konva nodes directly for performance
+        for (const childId of frameDragChildrenRef.current.childIds) {
+          const node = shapeRefs.current[childId];
+          if (node) {
+            node.x(node.x() + dx);
+            node.y(node.y() + dy);
+          }
+        }
+      }
+    }
   }, [flushDragState]);
 
   const stableOnTransform = useCallback((id: string, x: number, y: number, rotation: number, scaleX?: number, scaleY?: number, origW?: number, origH?: number) => {
@@ -1604,15 +1776,51 @@ export function Board({
     if (dragRafRef.current) { cancelAnimationFrame(dragRafRef.current); dragRafRef.current = null; }
     setDraggingObject(null);
     onObjectDragEndRef.current?.(id, x, y);
-    const movedObj = obj.type === 'drawing' ? obj : obj.type !== 'connector' ? { ...obj, x, y, rotation } : obj;
-    // Place dropped item above any overlapping objects
-    const maxZ = findMaxOverlappingZIndex(objectsRef.current, movedObj as BoardObject);
-    const currentZ = (obj as any).zIndex ?? 0;
-    const newZ = maxZ !== null && maxZ >= currentZ ? maxZ + 1 : currentZ;
-    if (obj.type === 'drawing') {
-      onObjectUpdateRef.current({ ...obj, zIndex: newZ } as any);
-    } else if (obj.type !== 'connector') {
-      onObjectUpdateRef.current({ ...obj, x, y, rotation, zIndex: newZ } as any);
+
+    // Frame drag end: apply total delta to all children's data-model positions
+    const fdc = frameDragChildrenRef.current;
+    if (fdc && fdc.frameId === id) {
+      const totalDx = x - fdc.origX;
+      const totalDy = y - fdc.origY;
+      for (const childId of fdc.childIds) {
+        const childObj = objectMapRef.current.get(childId);
+        if (!childObj) continue;
+        if (childObj.type === 'drawing') {
+          const newPoints = [...(childObj as any).points];
+          for (let i = 0; i < newPoints.length; i += 2) {
+            newPoints[i] += totalDx;
+            newPoints[i + 1] += totalDy;
+          }
+          onObjectUpdateRef.current({ ...childObj, points: newPoints } as any);
+        } else if (childObj.type !== 'connector') {
+          onObjectUpdateRef.current({ ...childObj, x: (childObj as any).x + totalDx, y: (childObj as any).y + totalDy } as any);
+        }
+      }
+      frameDragChildrenRef.current = null;
+    }
+
+    const isMultiSelect = selectedIdsRef.current.length > 1;
+    if (isMultiSelect) {
+      // Multi-select drag: just update position, don't bump zIndex (preserves relative ordering)
+      if (obj.type === 'drawing') {
+        onObjectUpdateRef.current(obj);
+      } else if (obj.type !== 'connector') {
+        onObjectUpdateRef.current({ ...obj, x, y, rotation });
+      }
+    } else if (obj.type === 'frame') {
+      // Frames always stay behind — don't bump zIndex
+      onObjectUpdateRef.current({ ...obj, x, y, rotation } as any);
+    } else {
+      // Single drag: place dropped item above any overlapping objects
+      const movedObj = obj.type === 'drawing' ? obj : obj.type !== 'connector' ? { ...obj, x, y, rotation } : obj;
+      const maxZ = findMaxOverlappingZIndex(objectsRef.current, movedObj as BoardObject);
+      const currentZ = (obj as any).zIndex ?? 0;
+      const newZ = maxZ !== null && maxZ >= currentZ ? maxZ + 1 : currentZ;
+      if (obj.type === 'drawing') {
+        onObjectUpdateRef.current({ ...obj, zIndex: newZ } as any);
+      } else if (obj.type !== 'connector') {
+        onObjectUpdateRef.current({ ...obj, x, y, rotation, zIndex: newZ } as any);
+      }
     }
   }, []);
 
@@ -1691,12 +1899,12 @@ export function Board({
   // ============= Memoized sorted objects =============
   const sortedObjects = useMemo(
     () => [...objects].sort((a, b) => {
-      const aOnTop = (draggingObject?.id === a.id || selectedIdsSet.has(a.id)) ? 1 : 0;
-      const bOnTop = (draggingObject?.id === b.id || selectedIdsSet.has(b.id)) ? 1 : 0;
+      const aOnTop = (draggingObject?.id === a.id) ? 1 : 0;
+      const bOnTop = (draggingObject?.id === b.id) ? 1 : 0;
       if (aOnTop !== bOnTop) return aOnTop - bOnTop;
       return ((a as any).zIndex ?? 0) - ((b as any).zIndex ?? 0);
     }),
-    [objects, draggingObject, selectedIdsSet]
+    [objects, draggingObject]
   );
 
   // ============= Viewport culling — only render visible objects =============
@@ -1777,9 +1985,11 @@ export function Board({
       }
 
       const ow = obj.type === 'sticky' ? obj.width :
-                 (obj.type === 'rectangle' || obj.type === 'circle' || obj.type === 'line') ? obj.width : 200;
+                 (obj.type === 'rectangle' || obj.type === 'circle' || obj.type === 'line') ? obj.width :
+                 obj.type === 'frame' ? (obj as any).width : 200;
       const oh = obj.type === 'sticky' ? obj.height :
-                 (obj.type === 'rectangle' || obj.type === 'circle' || obj.type === 'line') ? obj.height : 100;
+                 (obj.type === 'rectangle' || obj.type === 'circle' || obj.type === 'line') ? obj.height :
+                 obj.type === 'frame' ? (obj as any).height : 100;
       const isCenterOrigin = obj.type === 'rectangle' || obj.type === 'circle';
       const ox = isCenterOrigin ? obj.x - ow / 2 : obj.x;
       const oy = isCenterOrigin ? obj.y - oh / 2 : obj.y;
@@ -2141,11 +2351,14 @@ export function Board({
       const dp = drawingPathRef.current;
       if (dp) {
         if (dp.points.length >= 4) {  // at least 2 points
-          onObjectCreateRef.current({
-            id: dp.id, type: "drawing", points: dp.points,
+          const drawingObj = {
+            id: dp.id, type: "drawing" as const, points: dp.points,
             color: selectedShapeColor, strokeWidth: penStrokeWidthRef.current,
             penType: penTypeRef.current,
-          } as any);
+          } as any;
+          const maxZ = findMaxOverlappingZIndex(objectsRef.current, drawingObj as BoardObject);
+          if (maxZ !== null) drawingObj.zIndex = maxZ + 1;
+          onObjectCreateRef.current(drawingObj);
         }
         setDrawingPath(null);
         onDrawingEndRef.current?.();
@@ -2226,6 +2439,9 @@ export function Board({
             if (dObj.points[i+1] > dMaxY) dMaxY = dObj.points[i+1];
           }
           const intersects = !(dMaxX < minX || dMinX > maxX || dMaxY < minY || dMinY > maxY);
+          if (intersects) ids.push(obj.id);
+        } else if (obj.type === "frame") {
+          const intersects = !((obj as any).x + (obj as any).width < minX || (obj as any).x > maxX || (obj as any).y + (obj as any).height < minY || (obj as any).y > maxY);
           if (intersects) ids.push(obj.id);
         }
       });
@@ -2361,6 +2577,19 @@ export function Board({
           color: textColor,
           width: 200,
           rotation: 0,
+        } as any);
+      } else if (curTool === "frame") {
+        onObjectCreateRef.current({
+          id: `frame-${Date.now()}`,
+          type: "frame",
+          x: pos.x - 350,
+          y: pos.y - 250,
+          width: 700,
+          height: 500,
+          title: "Frame",
+          color: "#6366f1",
+          rotation: 0,
+          zIndex: -1,
         } as any);
       }
     },
@@ -2623,33 +2852,6 @@ export function Board({
             listening={false}
           />
         )}
-        {drawingPath && (
-          <Line
-            points={drawingPath.points}
-            stroke={selectedShapeColor}
-            strokeWidth={penType === "pen" ? penStrokeWidth * 0.7 : penStrokeWidth}
-            opacity={penType === "pen" ? 0.6 : penType === "highlighter" ? 0.4 : 1}
-            lineCap={penType === "marker" ? "square" : "round"}
-            lineJoin={penType === "marker" ? "miter" : "round"}
-            tension={0}
-            listening={false}
-            perfectDrawEnabled={false}
-          />
-        )}
-        {Object.entries(remoteDrawingPaths).map(([sid, rdp]) => (
-          <Line
-            key={`remote-draw-${sid}`}
-            points={rdp.points}
-            stroke={rdp.color}
-            strokeWidth={rdp.penType === "pen" ? rdp.strokeWidth * 0.7 : rdp.strokeWidth}
-            opacity={rdp.penType === "pen" ? 0.6 : rdp.penType === "highlighter" ? 0.4 : 1}
-            lineCap={rdp.penType === "marker" ? "square" : "round"}
-            lineJoin={rdp.penType === "marker" ? "miter" : "round"}
-            tension={0}
-            listening={false}
-            perfectDrawEnabled={false}
-          />
-        ))}
         {visibleObjects.map((obj) => {
           if (obj.type === "sticky") {
             const stickyObj = obj as StickyNote;
@@ -2781,6 +2983,25 @@ export function Board({
               />
             );
           }
+          if (obj.type === "frame") {
+            const frameObj = obj as FrameType;
+            return (
+              <MemoFrame
+                key={obj.id}
+                obj={frameObj}
+                isSelected={selectedIdsSet.has(obj.id)}
+                shapeRefs={shapeRefs}
+                onDragMove={stableOnDragMove}
+                onDragEnd={stableOnDragEnd}
+                onSelect={stableOnSelect}
+                onContextMenu={handleObjectContextMenu}
+                onTransform={stableOnTransform}
+                onTransformEnd={stableOnTransformEnd}
+                onCursorMove={stableOnCursorMove}
+                readOnly={readOnly}
+              />
+            );
+          }
           if (obj.type === "connector") {
             const connector = obj as any;
             const cached = connectorEndpoints.get(obj.id);
@@ -2808,6 +3029,34 @@ export function Board({
 
           return null;
         })}
+        {/* Active drawing strokes render on top of objects */}
+        {drawingPath && (
+          <Line
+            points={drawingPath.points}
+            stroke={selectedShapeColor}
+            strokeWidth={penType === "pen" ? penStrokeWidth * 0.7 : penStrokeWidth}
+            opacity={penType === "pen" ? 0.6 : penType === "highlighter" ? 0.4 : 1}
+            lineCap={penType === "marker" ? "square" : "round"}
+            lineJoin={penType === "marker" ? "miter" : "round"}
+            tension={0}
+            listening={false}
+            perfectDrawEnabled={false}
+          />
+        )}
+        {Object.entries(remoteDrawingPaths).map(([sid, rdp]) => (
+          <Line
+            key={`remote-draw-${sid}`}
+            points={rdp.points}
+            stroke={rdp.color}
+            strokeWidth={rdp.penType === "pen" ? rdp.strokeWidth * 0.7 : rdp.strokeWidth}
+            opacity={rdp.penType === "pen" ? 0.6 : rdp.penType === "highlighter" ? 0.4 : 1}
+            lineCap={rdp.penType === "marker" ? "square" : "round"}
+            lineJoin={rdp.penType === "marker" ? "miter" : "round"}
+            tension={0}
+            listening={false}
+            perfectDrawEnabled={false}
+          />
+        ))}
         {/* Show connector preview while drawing */}
         {drawingConnector && (
           <Line

@@ -51,7 +51,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
   const [showColorPicker, setShowColorPicker] = useState(false);
   const colorPickerRef = useRef<HTMLDivElement>(null);
   const [panelOpen, setPanelOpen] = useState(!!aiPrompt);
-  const [activeTab, setActiveTab] = useState<'chat' | 'ai'>(aiPrompt ? 'ai' : 'chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'ai'>('ai');
   const [panelSize, setPanelSize] = useState({ width: 380, height: 480 });
   const isResizingRef = useRef(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -92,25 +92,73 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
   const noopTextEdit = useCallback((_id: string, _text: string) => {}, []);
   const noopCursor = useCallback((_x: number, _y: number) => {}, []);
 
-  // Undo stack for local deletions only
-  const [deletedStack, setDeletedStack] = useState<BoardObject[]>([]);
+  // Undo/Redo history
+  type UndoAction =
+    | { type: 'create'; obj: BoardObject }
+    | { type: 'delete'; obj: BoardObject }
+    | { type: 'update'; prev: BoardObject; next: BoardObject };
+
+  const undoStackRef = useRef<UndoAction[]>([]);
+  const redoStackRef = useRef<UndoAction[]>([]);
+  const [, setHistoryVersion] = useState(0);
+  const bumpHistory = useCallback(() => setHistoryVersion(v => v + 1), []);
   const objectsRef = useRef(objects);
   objectsRef.current = objects;
 
-  const deleteWithUndo = useCallback((id: string) => {
+  const trackedCreate = useCallback((obj: BoardObject) => {
+    undoStackRef.current = [...undoStackRef.current, { type: 'create', obj }];
+    redoStackRef.current = [];
+    bumpHistory();
+    createObject(obj);
+  }, [createObject]);
+
+  const trackedUpdate = useCallback((obj: BoardObject) => {
+    const prev = objectsRef.current.find(o => o.id === obj.id);
+    if (prev) {
+      undoStackRef.current = [...undoStackRef.current, { type: 'update', prev, next: obj }];
+      redoStackRef.current = [];
+      bumpHistory();
+    }
+    updateObject(obj);
+  }, [updateObject]);
+
+  const trackedDelete = useCallback((id: string) => {
     const obj = objectsRef.current.find(o => o.id === id);
-    if (obj) setDeletedStack(prev => [...prev, obj]);
+    if (obj) {
+      undoStackRef.current = [...undoStackRef.current, { type: 'delete', obj }];
+      redoStackRef.current = [];
+      bumpHistory();
+    }
     deleteObject(id);
   }, [deleteObject]);
 
   const handleUndo = useCallback(() => {
-    setDeletedStack(prev => {
-      if (prev.length === 0) return prev;
-      const last = prev[prev.length - 1];
-      createObject(last);
-      return prev.slice(0, -1);
-    });
-  }, [createObject]);
+    const stack = undoStackRef.current;
+    if (stack.length === 0) return;
+    const action = stack[stack.length - 1];
+    undoStackRef.current = stack.slice(0, -1);
+    redoStackRef.current = [...redoStackRef.current, action];
+    bumpHistory();
+    switch (action.type) {
+      case 'create': deleteObject(action.obj.id); break;
+      case 'delete': createObject(action.obj); break;
+      case 'update': updateObject(action.prev); break;
+    }
+  }, [createObject, updateObject, deleteObject]);
+
+  const handleRedo = useCallback(() => {
+    const stack = redoStackRef.current;
+    if (stack.length === 0) return;
+    const action = stack[stack.length - 1];
+    redoStackRef.current = stack.slice(0, -1);
+    undoStackRef.current = [...undoStackRef.current, action];
+    bumpHistory();
+    switch (action.type) {
+      case 'create': createObject(action.obj); break;
+      case 'delete': deleteObject(action.obj.id); break;
+      case 'update': updateObject(action.next); break;
+    }
+  }, [createObject, updateObject, deleteObject]);
 
   // Broadcast selection changes to other users
   useEffect(() => {
@@ -226,7 +274,13 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
       const active = document.activeElement;
       const isInput = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" || (active as HTMLElement)?.isContentEditable;
 
-      // Ctrl/Cmd+Z to undo last deletion
+      // Ctrl/Cmd+Shift+Z to redo
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "z" && !isInput) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+      // Ctrl/Cmd+Z to undo
       if ((e.metaKey || e.ctrlKey) && e.key === "z" && !isInput) {
         e.preventDefault();
         handleUndo();
@@ -237,12 +291,12 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
       if (isInput) return;
       if (selectedIds.length === 0) return;
       e.preventDefault();
-      selectedIds.forEach((id) => deleteWithUndo(id));
+      selectedIds.forEach((id) => trackedDelete(id));
       setSelectedIds([]);
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedIds, deleteWithUndo, handleUndo, effectiveReadOnly]);
+  }, [selectedIds, trackedDelete, handleUndo, handleRedo, effectiveReadOnly]);
 
   useEffect(() => {
     if (!showBgPicker) return;
@@ -315,9 +369,9 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
         tool={effectiveReadOnly ? "pan" : tool}
         selectedIds={effectiveReadOnly ? [] : selectedIds}
         onSelect={effectiveReadOnly ? noop : setSelectedIds}
-        onObjectCreate={effectiveReadOnly ? noopObj : createObject}
-        onObjectUpdate={effectiveReadOnly ? noopObj : updateObject}
-        onObjectDelete={effectiveReadOnly ? noopStr : deleteWithUndo}
+        onObjectCreate={effectiveReadOnly ? noopObj : trackedCreate}
+        onObjectUpdate={effectiveReadOnly ? noopObj : trackedUpdate}
+        onObjectDelete={effectiveReadOnly ? noopStr : trackedDelete}
         onCursorMove={effectiveReadOnly ? noopCursor : emitCursor}
         onObjectDrag={effectiveReadOnly ? noopDrag : emitObjectDrag}
         onObjectDragEnd={effectiveReadOnly ? noopDragEnd : emitObjectDragEnd}
@@ -527,11 +581,16 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
         <div style={{ width: 1, height: 24, background: "rgba(0,0,0,0.1)" }} />
 
         <div style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6, opacity: effectiveReadOnly ? 0.5 : 1, pointerEvents: effectiveReadOnly ? "none" : "auto" }}>
-          {(["pan", "sticky", "text", "rectangle", "circle", "line", "drawing"] as const).map((t, index) => [
+          {(["pan", "sticky", "text", "rectangle", "circle", "line", "drawing", "frame"] as const).map((t, index) => [
               <button
                 key={t}
                 data-testid={`tool-${t}`}
-                onClick={() => setTool(t)}
+                onClick={() => {
+                  setTool(t);
+                  if (t === "drawing") {
+                    setSelectedColor(penType === "highlighter" ? "#fef08a" : "#000000");
+                  }
+                }}
                 title={
                   t === "pan"
                     ? "Drag to pan • Shift+drag to select"
@@ -545,7 +604,9 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                             ? "Click to add line"
                             : t === "drawing"
                               ? "Click and drag to draw"
-                              : "Click to add sticky note"
+                              : t === "frame"
+                                ? "Click to add frame"
+                                : "Click to add sticky note"
                 }
                 style={{
                   padding: "6px 12px",
@@ -571,11 +632,11 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                 }}
               >
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 16 }}>{t === "pan" ? "✋" : t === "sticky" ? "📝" : t === "text" ? "𝐓" : t === "rectangle" ? "◻" : t === "circle" ? "⭕" : t === "drawing" ? "✏️" : "⁄"}</span>
+                  <span style={{ fontSize: 16 }}>{t === "pan" ? "✋" : t === "sticky" ? "📝" : t === "text" ? "𝐓" : t === "rectangle" ? "◻" : t === "circle" ? "⭕" : t === "drawing" ? "✏️" : t === "frame" ? "▢" : "⁄"}</span>
                   <span>{t === "drawing" ? "Draw" : t.charAt(0).toUpperCase() + t.slice(1)}</span>
                 </span>
               </button>,
-              index < 6 && <div key={`sep-${index}`} style={{ width: 1, height: 20, background: "rgba(0,0,0,0.06)" }} />
+              index < 7 && <div key={`sep-${index}`} style={{ width: 1, height: 20, background: "rgba(0,0,0,0.06)" }} />
           ].filter(Boolean))}
         </div>
 
@@ -844,7 +905,10 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
             ]).map((opt) => (
               <button
                 key={opt.value}
-                onClick={() => setPenType(opt.value)}
+                onClick={() => {
+                  setPenType(opt.value);
+                  setSelectedColor(opt.value === "highlighter" ? "#fef08a" : "#000000");
+                }}
                 style={{
                   padding: "4px 8px",
                   background: penType === opt.value ? "linear-gradient(135deg, #3b82f6, #2563eb)" : "white",
@@ -906,7 +970,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                     setSelectedColor(color);
                     selectedIds.forEach(id => {
                       const obj = objects.find(o => o.id === id);
-                      if (obj) updateObject({ ...obj, color } as any);
+                      if (obj) trackedUpdate({ ...obj, color } as any);
                     });
                   }}
                   style={{
@@ -934,7 +998,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                     setSelectedColor(c);
                     selectedIds.forEach(id => {
                       const obj = objects.find(o => o.id === id);
-                      if (obj) updateObject({ ...obj, color: c } as any);
+                      if (obj) trackedUpdate({ ...obj, color: c } as any);
                     });
                   }}
                   style={{
@@ -970,7 +1034,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
         {selectedIds.length > 0 && (
           <button
             data-testid="delete-btn"
-            onClick={() => { selectedIds.forEach((id) => deleteWithUndo(id)); setSelectedIds([]); }}
+            onClick={() => { selectedIds.forEach((id) => trackedDelete(id)); setSelectedIds([]); }}
             style={{
               padding: "7px 14px",
               background: "linear-gradient(135deg, #ef4444, #dc2626)",
@@ -990,28 +1054,42 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
           </button>
         )}
 
-        {deletedStack.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
           <button
             onClick={handleUndo}
+            disabled={undoStackRef.current.length === 0}
             style={{
-              padding: "7px 14px",
-              background: "linear-gradient(135deg, #6b7280, #4b5563)",
-              color: "white",
+              padding: "6px 10px",
+              background: undoStackRef.current.length > 0 ? "rgba(0,0,0,0.06)" : "transparent",
+              color: undoStackRef.current.length > 0 ? "#374151" : "#d1d5db",
               border: "none",
-              borderRadius: 8,
-              cursor: "pointer",
-              fontSize: 13,
-              fontWeight: 500,
-              transition: "all 0.2s",
-              boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
+              borderRadius: 6,
+              cursor: undoStackRef.current.length > 0 ? "pointer" : "default",
+              fontSize: 16,
+              transition: "all 0.15s",
             }}
-            onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-1px)"}
-            onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}
-            title="Undo last delete (Ctrl+Z)"
+            title="Undo (Ctrl+Z)"
           >
-            Undo ({deletedStack.length})
+            ↩
           </button>
-        )}
+          <button
+            onClick={handleRedo}
+            disabled={redoStackRef.current.length === 0}
+            style={{
+              padding: "6px 10px",
+              background: redoStackRef.current.length > 0 ? "rgba(0,0,0,0.06)" : "transparent",
+              color: redoStackRef.current.length > 0 ? "#374151" : "#d1d5db",
+              border: "none",
+              borderRadius: 6,
+              cursor: redoStackRef.current.length > 0 ? "pointer" : "default",
+              fontSize: 16,
+              transition: "all 0.15s",
+            }}
+            title="Redo (Ctrl+Shift+Z)"
+          >
+            ↪
+          </button>
+        </div>
 
         <div style={{ width: 1, height: 24, background: "rgba(0,0,0,0.1)" }} />
 
