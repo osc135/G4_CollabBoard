@@ -215,7 +215,8 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
 
   // Process a single action from the AI, applying it to the board.
   // Returns the ID of the created object (if any) so callers can track new IDs.
-  const processAction = (action: { tool: string; arguments: any }, liveObjects: Map<string, any>, centerX: number, centerY: number): string | undefined => {
+  // When skipSave=true, builds the object in liveObjects but doesn't call callbacks.createObject.
+  const processAction = (action: { tool: string; arguments: any }, liveObjects: Map<string, any>, centerX: number, centerY: number, skipSave = false): string | undefined => {
     if (!callbacks) return undefined;
     const args = action.arguments;
     const offset = (val: number | undefined) => val ?? 0;
@@ -335,7 +336,7 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
         zIndex: args.zIndex ?? 0,
       };
       liveObjects.set(connectorObj.id, connectorObj);
-      callbacks.createObject(connectorObj);
+      if (!skipSave) callbacks.createObject(connectorObj);
       // If label is provided, create a text object near the midpoint
       if (args.label) {
         const midX = (startPoint.x + endPoint.x) / 2;
@@ -353,7 +354,7 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
           zIndex: (args.zIndex ?? 0) + 1,
         };
         liveObjects.set(labelObj.id, labelObj);
-        callbacks.createObject(labelObj);
+        if (!skipSave) callbacks.createObject(labelObj);
       }
       return connectorObj.id;
     } else if (action.tool === 'organize_board' && callbacks.updateObject) {
@@ -490,6 +491,22 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
       const allActions: any[] = [];
       const newIds = new Set<string>();
 
+      // Unique prefix per request to prevent duplicate IDs across generations
+      // (AI reuses generic IDs like "step1", "step2" every time)
+      const batchPrefix = `b${Date.now().toString(36)}`;
+      const idMap = new Map<string, string>();
+      const remapId = (aiId: string): string => {
+        if (!idMap.has(aiId)) {
+          idMap.set(aiId, `${batchPrefix}-${aiId}`);
+        }
+        return idMap.get(aiId)!;
+      };
+
+      // Collect actions during streaming but DON'T call callbacks yet.
+      // We need to save nodes before connectors to satisfy Supabase foreign keys.
+      // Track connector IDs so we can save them after nodes are persisted
+      const deferredConnectorIds: string[] = [];
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -503,12 +520,26 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
           try {
             const event = JSON.parse(line);
             if (event.type === 'action') {
+              // Namespace AI-provided IDs to prevent cross-request collisions
+              const args = event.action.arguments;
+              if (args) {
+                if (args.id) args.id = remapId(args.id);
+                if (args.startObjectId) args.startObjectId = remapId(args.startObjectId);
+                if (args.endObjectId) args.endObjectId = remapId(args.endObjectId);
+              }
               allActions.push(event.action);
-              // Track the AI-specified ID before processing
-              if (event.action.arguments?.id) newIds.add(event.action.arguments.id);
-              const createdId = processAction(event.action, liveObjects, centerX, centerY);
-              // Also track auto-generated IDs
-              if (createdId) newIds.add(createdId);
+
+              if (event.action.tool === 'create_connector') {
+                // Build in liveObjects for layout engine, but defer the actual save
+                const createdId = processAction(event.action, liveObjects, centerX, centerY, true);
+                if (createdId) {
+                  newIds.add(createdId);
+                  deferredConnectorIds.push(createdId);
+                }
+              } else {
+                const createdId = processAction(event.action, liveObjects, centerX, centerY);
+                if (createdId) newIds.add(createdId);
+              }
               onActionReceived?.();
             } else if (event.type === 'text') {
               fullText += (fullText ? ' ' : '') + event.text;
@@ -525,6 +556,18 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
       // Apply flowchart layout engine after all objects are created
       if (callbacks?.updateObject) {
         applyFlowchartLayout(liveObjects, newIds, centerX, centerY, callbacks.updateObject);
+      }
+
+      // Now save deferred connectors — nodes have already been sent to Supabase,
+      // give them a moment to persist before inserting connectors that reference them.
+      if (deferredConnectorIds.length > 0 && callbacks?.createObject) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        for (const id of deferredConnectorIds) {
+          const obj = liveObjects.get(id);
+          if (obj) {
+            callbacks.createObject(obj);
+          }
+        }
       }
 
       // Generate fallback message if none
