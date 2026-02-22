@@ -43,12 +43,13 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
 
   const [tool, setTool] = useState<Tool>(readOnly ? "pan" : "pan");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [selectedStickyColor, setSelectedStickyColor] = useState<string>(STICKY_COLORS[0]);
-  const [selectedShapeColor, setSelectedShapeColor] = useState<string>(STICKY_COLORS[0]);
+  const [selectedColor, setSelectedColor] = useState<string>(STICKY_COLORS[0]);
   const [penType, setPenType] = useState<"pen" | "marker" | "highlighter">("pen");
   const [penStrokeWidth, setPenStrokeWidth] = useState<number>(3);
   const [showBgPicker, setShowBgPicker] = useState(false);
   const bgPickerRef = useRef<HTMLDivElement>(null);
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const colorPickerRef = useRef<HTMLDivElement>(null);
   const [panelOpen, setPanelOpen] = useState(!!aiPrompt);
   const [activeTab, setActiveTab] = useState<'chat' | 'ai'>(aiPrompt ? 'ai' : 'chat');
   const [panelSize, setPanelSize] = useState({ width: 380, height: 480 });
@@ -254,6 +255,17 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showBgPicker]);
 
+  useEffect(() => {
+    if (!showColorPicker) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
+        setShowColorPicker(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showColorPicker]);
+
   const handleResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
     isResizingRef.current = true;
@@ -318,8 +330,8 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
         onStickyLock={effectiveReadOnly ? noopStr : emitStickyLock}
         onStickyUnlock={effectiveReadOnly ? noopStr : emitStickyUnlock}
         stageRef={stageRef}
-        selectedStickyColor={selectedStickyColor}
-        selectedShapeColor={selectedShapeColor}
+        selectedStickyColor={selectedColor}
+        selectedShapeColor={selectedColor}
         backgroundPattern={backgroundPattern as BackgroundPattern}
         bgColor={bgColor}
         penType={penType}
@@ -567,6 +579,87 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
           ].filter(Boolean))}
         </div>
 
+        <div ref={colorPickerRef} style={{ position: "relative", opacity: effectiveReadOnly ? 0.5 : 1, pointerEvents: effectiveReadOnly ? "none" : "auto" }}>
+          <button
+            onClick={() => setShowColorPicker(!showColorPicker)}
+            title="Object color"
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: "50%",
+              background: selectedColor,
+              border: showColorPicker ? "2px solid #3b82f6" : "2px solid rgba(0,0,0,0.12)",
+              cursor: "pointer",
+              padding: 0,
+              transition: "all 0.2s",
+              boxShadow: showColorPicker ? "0 0 0 3px rgba(59,130,246,0.3)" : "0 1px 3px rgba(0,0,0,0.1)",
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1)"}
+            onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+          />
+          {showColorPicker && (
+            <div style={{
+              position: "absolute",
+              top: "calc(100% + 8px)",
+              left: "50%",
+              transform: "translateX(-50%)",
+              background: "white",
+              borderRadius: 12,
+              boxShadow: "0 8px 30px rgba(0,0,0,0.15), 0 2px 8px rgba(0,0,0,0.08)",
+              border: "1px solid rgba(0,0,0,0.08)",
+              padding: 16,
+              zIndex: 100,
+              width: 220,
+            }}>
+              <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Object Color</span>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginTop: 8 }}>
+                {STICKY_COLORS.map((color) => (
+                  <button
+                    key={color}
+                    onClick={() => { setSelectedColor(color); setShowColorPicker(false); }}
+                    style={{
+                      width: 30,
+                      height: 30,
+                      borderRadius: "50%",
+                      background: color,
+                      border: selectedColor === color ? "2px solid #1e293b" : "1px solid rgba(0,0,0,0.1)",
+                      cursor: "pointer",
+                      padding: 0,
+                      transition: "all 0.15s",
+                      boxShadow: selectedColor === color ? "0 0 0 3px rgba(0,0,0,0.1)" : "none",
+                      justifySelf: "center",
+                    }}
+                    title={color}
+                    onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.15)"}
+                    onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+                  />
+                ))}
+              </div>
+              <div style={{ height: 1, background: "rgba(0,0,0,0.06)", margin: "12px -16px" }} />
+              <label style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "6px 10px",
+                background: "linear-gradient(135deg, #f0f9ff, #fdf2f8, #fefce8)",
+                border: "1px solid rgba(0,0,0,0.1)",
+                borderRadius: 8,
+                cursor: "pointer",
+                transition: "all 0.15s",
+              }}>
+                <input
+                  type="color"
+                  value={selectedColor}
+                  onChange={(e) => setSelectedColor(e.target.value)}
+                  style={{ width: 24, height: 24, border: "none", borderRadius: 4, cursor: "pointer", padding: 0 }}
+                />
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#4b5563" }}>Custom Color</span>
+                <span style={{ fontSize: 11, color: "#9ca3af", marginLeft: "auto" }}>{selectedColor}</span>
+              </label>
+            </div>
+          )}
+        </div>
+
         <div style={{ width: 1, height: 24, background: "rgba(0,0,0,0.1)" }} />
 
         <div ref={bgPickerRef} style={{ position: "relative", opacity: effectiveReadOnly ? 0.5 : 1, pointerEvents: effectiveReadOnly ? "none" : "auto" }}>
@@ -741,51 +834,6 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
 
         <div style={{ flex: 1 }} />
 
-        {tool === "sticky" && selectedIds.length === 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6 }}>
-            <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>COLOR</span>
-            {STICKY_COLORS.map((color) => (
-              <button
-                key={color}
-                onClick={() => setSelectedStickyColor(color)}
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 6,
-                  background: color,
-                  border: selectedStickyColor === color ? "2px solid #1e293b" : "1px solid rgba(0,0,0,0.1)",
-                  cursor: "pointer",
-                  padding: 0,
-                  transition: "all 0.15s",
-                  boxShadow: selectedStickyColor === color ? "0 0 0 3px rgba(0,0,0,0.1)" : "none"
-                }}
-                title={color}
-                onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1)"}
-                onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
-              />
-            ))}
-            <label style={{ position: "relative", width: 24, height: 24, cursor: "pointer" }}>
-              <input
-                type="color"
-                value={selectedStickyColor}
-                onChange={(e) => setSelectedStickyColor(e.target.value)}
-                style={{ position: "absolute", inset: 0, opacity: 0, width: "100%", height: "100%", cursor: "pointer" }}
-              />
-              <div style={{
-                width: 24, height: 24, borderRadius: 6,
-                background: "white",
-                border: "1px solid rgba(0,0,0,0.1)", pointerEvents: "none",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4b5563" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M16.7 3.3a1 1 0 0 1 1.4 0l2.6 2.6a1 1 0 0 1 0 1.4l-3.2 3.2-4-4z" />
-                  <path d="M13.5 6.5l-9.1 9.1a2 2 0 0 0-.6 1.4V20a1 1 0 0 0 1 1h3a2 2 0 0 0 1.4-.6l9.1-9.1" />
-                </svg>
-              </div>
-            </label>
-          </div>
-        )}
-
         {tool === "drawing" && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6 }}>
             <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>TYPE</span>
@@ -844,51 +892,6 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
           </div>
         )}
 
-        {(tool === "text" || tool === "rectangle" || tool === "circle" || tool === "line" || tool === "drawing") && selectedIds.length === 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6 }}>
-            <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>COLOR</span>
-            {STICKY_COLORS.map((color) => (
-              <button
-                key={color}
-                onClick={() => setSelectedShapeColor(color)}
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 6,
-                  background: color,
-                  border: selectedShapeColor === color ? "2px solid #1e293b" : "1px solid rgba(0,0,0,0.1)",
-                  cursor: "pointer",
-                  padding: 0,
-                  transition: "all 0.15s",
-                  boxShadow: selectedShapeColor === color ? "0 0 0 3px rgba(0,0,0,0.1)" : "none"
-                }}
-                title={color}
-                onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1)"}
-                onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
-              />
-            ))}
-            <label style={{ position: "relative", width: 24, height: 24, cursor: "pointer" }}>
-              <input
-                type="color"
-                value={selectedShapeColor}
-                onChange={(e) => setSelectedShapeColor(e.target.value)}
-                style={{ position: "absolute", inset: 0, opacity: 0, width: "100%", height: "100%", cursor: "pointer" }}
-              />
-              <div style={{
-                width: 24, height: 24, borderRadius: 6,
-                background: "white",
-                border: "1px solid rgba(0,0,0,0.1)", pointerEvents: "none",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4b5563" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M16.7 3.3a1 1 0 0 1 1.4 0l2.6 2.6a1 1 0 0 1 0 1.4l-3.2 3.2-4-4z" />
-                  <path d="M13.5 6.5l-9.1 9.1a2 2 0 0 0-.6 1.4V20a1 1 0 0 0 1 1h3a2 2 0 0 0 1.4-.6l9.1-9.1" />
-                </svg>
-              </div>
-            </label>
-          </div>
-        )}
-
         {selectedIds.length > 0 && (() => {
           const selObj = objects.find(o => o.id === selectedIds[0]);
           if (!selObj) return null;
@@ -900,6 +903,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                 <button
                   key={color}
                   onClick={() => {
+                    setSelectedColor(color);
                     selectedIds.forEach(id => {
                       const obj = objects.find(o => o.id === id);
                       if (obj) updateObject({ ...obj, color } as any);
@@ -927,6 +931,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                   value={selObj.color || "#000000"}
                   onChange={(e) => {
                     const c = e.target.value;
+                    setSelectedColor(c);
                     selectedIds.forEach(id => {
                       const obj = objects.find(o => o.id === id);
                       if (obj) updateObject({ ...obj, color: c } as any);
