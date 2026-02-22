@@ -56,6 +56,115 @@ interface AIChatProps {
   onInitialPromptConsumed?: () => void;
 }
 
+// Client-side layout engine for flowcharts/diagrams.
+// Runs after all AI actions are processed. Only activates when connectors exist.
+// Uses Kahn's algorithm (topological sort) to assign layers, then positions nodes.
+function applyFlowchartLayout(
+  liveObjects: Map<string, any>,
+  newIds: Set<string>,
+  centerX: number,
+  centerY: number,
+  updateObject: (obj: any) => void,
+) {
+  const HORIZONTAL_GAP = 40;
+  const VERTICAL_GAP = 60;
+
+  // Separate new connectors and new nodes referenced by connectors
+  const connectors: any[] = [];
+  const connectedNodeIds = new Set<string>();
+
+  for (const id of newIds) {
+    const obj = liveObjects.get(id);
+    if (!obj) continue;
+    if (obj.type === 'connector' && obj.startObjectId && obj.endObjectId) {
+      connectors.push(obj);
+      connectedNodeIds.add(obj.startObjectId);
+      connectedNodeIds.add(obj.endObjectId);
+    }
+  }
+
+  // Only activate when connectors exist
+  if (connectors.length === 0) return;
+
+  // Only reposition nodes that are both new AND referenced by connectors
+  const nodeIds = [...connectedNodeIds].filter(id => newIds.has(id) && liveObjects.has(id));
+  if (nodeIds.length === 0) return;
+
+  // Build directed graph: parent → children, compute in-degrees
+  const children = new Map<string, string[]>();
+  const inDegree = new Map<string, number>();
+  for (const id of nodeIds) {
+    children.set(id, []);
+    inDegree.set(id, 0);
+  }
+  for (const c of connectors) {
+    if (children.has(c.startObjectId) && inDegree.has(c.endObjectId)) {
+      children.get(c.startObjectId)!.push(c.endObjectId);
+      inDegree.set(c.endObjectId, (inDegree.get(c.endObjectId) || 0) + 1);
+    }
+  }
+
+  // Kahn's algorithm: BFS from roots (in-degree 0) to assign layers
+  const layers: string[][] = [];
+  let queue = nodeIds.filter(id => (inDegree.get(id) || 0) === 0);
+  const visited = new Set<string>();
+
+  while (queue.length > 0) {
+    layers.push(queue);
+    for (const id of queue) visited.add(id);
+    const next: string[] = [];
+    for (const id of queue) {
+      for (const child of children.get(id) || []) {
+        inDegree.set(child, (inDegree.get(child) || 0) - 1);
+        if (inDegree.get(child) === 0 && !visited.has(child)) {
+          next.push(child);
+        }
+      }
+    }
+    queue = next;
+  }
+
+  // Handle cycles: unvisited nodes go to last layer
+  const unvisited = nodeIds.filter(id => !visited.has(id));
+  if (unvisited.length > 0) layers.push(unvisited);
+
+  // Calculate total height for vertical centering
+  let totalHeight = 0;
+  const layerHeights: number[] = [];
+  for (const layer of layers) {
+    const maxH = Math.max(...layer.map(id => liveObjects.get(id)?.height || 80));
+    layerHeights.push(maxH);
+    totalHeight += maxH;
+  }
+  totalHeight += (layers.length - 1) * VERTICAL_GAP;
+
+  // Position each layer
+  let currentY = centerY - totalHeight / 2;
+  for (let i = 0; i < layers.length; i++) {
+    const layer = layers[i];
+    const layerH = layerHeights[i];
+
+    // Calculate total width for horizontal centering
+    let totalWidth = 0;
+    for (const id of layer) {
+      totalWidth += liveObjects.get(id)?.width || 150;
+    }
+    totalWidth += (layer.length - 1) * HORIZONTAL_GAP;
+
+    let currentX = centerX - totalWidth / 2;
+    for (const id of layer) {
+      const obj = liveObjects.get(id);
+      if (!obj) continue;
+      const w = obj.width || 150;
+      const updated = { ...obj, x: currentX, y: currentY };
+      liveObjects.set(id, updated);
+      updateObject(updated);
+      currentX += w + HORIZONTAL_GAP;
+    }
+    currentY += layerH + VERTICAL_GAP;
+  }
+}
+
 export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt, boardConnected, onInitialPromptConsumed, isVisible }: AIChatProps & { isVisible: boolean }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
@@ -92,15 +201,9 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
   const getAnchorPoint = (obj: any, anchor: string): { x: number; y: number } => {
     const w = obj.width || 0;
     const h = obj.height || 0;
-    // Sticky notes and textboxes use top-left positioning; rects and circles use center
-    let cx: number, cy: number;
-    if (obj.type === 'sticky' || obj.type === 'textbox') {
-      cx = obj.x + w / 2;
-      cy = obj.y + h / 2;
-    } else {
-      cx = obj.x;
-      cy = obj.y;
-    }
+    // All objects store x,y as top-left; compute center
+    const cx = obj.x + w / 2;
+    const cy = obj.y + h / 2;
     switch (anchor) {
       case 'top': return { x: cx, y: cy - h / 2 };
       case 'bottom': return { x: cx, y: cy + h / 2 };
@@ -110,9 +213,10 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
     }
   };
 
-  // Process a single action from the AI, applying it to the board
-  const processAction = (action: { tool: string; arguments: any }, liveObjects: Map<string, any>, centerX: number, centerY: number) => {
-    if (!callbacks) return;
+  // Process a single action from the AI, applying it to the board.
+  // Returns the ID of the created object (if any) so callers can track new IDs.
+  const processAction = (action: { tool: string; arguments: any }, liveObjects: Map<string, any>, centerX: number, centerY: number): string | undefined => {
+    if (!callbacks) return undefined;
     const args = action.arguments;
     const offset = (val: number | undefined) => val ?? 0;
 
@@ -122,8 +226,8 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
         type: 'sticky' as const,
         x: centerX + offset(args.x),
         y: centerY + offset(args.y),
-        width: 200,
-        height: 200,
+        width: args.width || 200,
+        height: args.height || 200,
         rotation: 0,
         text: args.text || '',
         color: args.color || '#ffeb3b',
@@ -131,15 +235,16 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
       };
       liveObjects.set(newObj.id, newObj);
       callbacks.createObject(newObj);
+      return newObj.id;
     } else if (action.tool === 'create_rectangle' && callbacks.createObject) {
       const rw = args.width || 120;
       const rh = args.height || 80;
-      // AI provides top-left coords; Board.tsx renders rects with (x,y) as center
+      // AI provides top-left coords; Board.tsx also stores rects as top-left
       const newObj = {
         id: args.id || `rect-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         type: 'rectangle' as const,
-        x: centerX + offset(args.x) + rw / 2,
-        y: centerY + offset(args.y) + rh / 2,
+        x: centerX + offset(args.x),
+        y: centerY + offset(args.y),
         width: rw,
         height: rh,
         color: args.color || '#2196f3',
@@ -148,14 +253,15 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
       };
       liveObjects.set(newObj.id, newObj);
       callbacks.createObject(newObj);
+      return newObj.id;
     } else if (action.tool === 'create_circle' && callbacks.createObject) {
       const size = args.size || 80;
       // AI provides top-left coords; Board.tsx renders circles with (x,y) as center
       const newObj = {
         id: args.id || `circle-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         type: 'circle' as const,
-        x: centerX + offset(args.x) + size / 2,
-        y: centerY + offset(args.y) + size / 2,
+        x: centerX + offset(args.x),
+        y: centerY + offset(args.y),
         width: size,
         height: size,
         color: args.color || '#4caf50',
@@ -164,6 +270,7 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
       };
       liveObjects.set(newObj.id, newObj);
       callbacks.createObject(newObj);
+      return newObj.id;
     } else if (action.tool === 'create_text' && callbacks.createObject) {
       const newObj = {
         id: args.id || `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -179,6 +286,7 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
       };
       liveObjects.set(newObj.id, newObj);
       callbacks.createObject(newObj);
+      return newObj.id;
     } else if (action.tool === 'create_line' && callbacks.createObject) {
       const newObj = {
         id: args.id || `line-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -193,6 +301,7 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
       };
       liveObjects.set(newObj.id, newObj);
       callbacks.createObject(newObj);
+      return newObj.id;
     } else if (action.tool === 'create_connector' && callbacks.createObject) {
       // Resolve start point
       let startPoint = { x: centerX + offset(args.startX), y: centerY + offset(args.startY) };
@@ -246,6 +355,7 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
         liveObjects.set(labelObj.id, labelObj);
         callbacks.createObject(labelObj);
       }
+      return connectorObj.id;
     } else if (action.tool === 'organize_board' && callbacks.updateObject) {
       const gap = 16;
       const groupGap = 60;
@@ -378,6 +488,7 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
       let buffer = '';
       let fullText = '';
       const allActions: any[] = [];
+      const newIds = new Set<string>();
 
       while (true) {
         const { done, value } = await reader.read();
@@ -393,7 +504,11 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
             const event = JSON.parse(line);
             if (event.type === 'action') {
               allActions.push(event.action);
-              processAction(event.action, liveObjects, centerX, centerY);
+              // Track the AI-specified ID before processing
+              if (event.action.arguments?.id) newIds.add(event.action.arguments.id);
+              const createdId = processAction(event.action, liveObjects, centerX, centerY);
+              // Also track auto-generated IDs
+              if (createdId) newIds.add(createdId);
               onActionReceived?.();
             } else if (event.type === 'text') {
               fullText += (fullText ? ' ' : '') + event.text;
@@ -405,6 +520,11 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
             // skip malformed lines
           }
         }
+      }
+
+      // Apply flowchart layout engine after all objects are created
+      if (callbacks?.updateObject) {
+        applyFlowchartLayout(liveObjects, newIds, centerX, centerY, callbacks.updateObject);
       }
 
       // Generate fallback message if none

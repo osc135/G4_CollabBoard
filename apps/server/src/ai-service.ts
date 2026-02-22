@@ -177,6 +177,8 @@ const tools: Anthropic.Tool[] = [
         color: { type: 'string', enum: ['#ffeb3b', '#4caf50', '#ff9800', '#f44336', '#2196f3', '#9c27b0'], description: 'The color of the sticky note' },
         x: { type: 'number', description: 'Horizontal offset from screen center (px). 0 = center.' },
         y: { type: 'number', description: 'Vertical offset from screen center (px). 0 = center.' },
+        width: { type: 'number', description: 'Width in px (default 200). Use ~150 for flowchart nodes.' },
+        height: { type: 'number', description: 'Height in px (default 200). Use ~80 for flowchart nodes.' },
         zIndex: { type: 'number', description: zIndexDescription },
       },
       required: ['text'],
@@ -1125,21 +1127,13 @@ ${objectSummary || '(empty board)'}
 POSITIONING: x/y offsets are relative to the CENTER of the user's screen. (0,0) = screen center.
 - x: positive = right, negative = left. y: positive = down, negative = up.
 - x/y is the TOP-LEFT corner of the object's bounding box for ALL object types.
-- The screen is roughly 1920px wide and 1080px tall, so offsets can range from -960 to 960 horizontally and -540 to 540 vertically. USE THE FULL SPACE.
+- For flowcharts and diagrams: Do NOT provide x or y coordinates for nodes — layout is handled automatically by the client. Just provide content, IDs, and connectors.
+- For non-flowchart requests (scenes, drawings, individual objects): provide x/y as usual.
 
-OBJECT SIZES (CRITICAL):
-- Sticky notes are ALWAYS 200x200 px. You CANNOT change their size. Account for this when spacing.
+OBJECT SIZES:
+- Sticky notes default to 200x200 px but you can set width/height. Use width=150, height=80 for flowchart nodes.
 - Rectangles default to 120x80 but you can set width/height. For background sections, use 400-500px wide.
 - Text labels auto-size based on content. Set width to control wrapping.
-- When creating a SWOT, Kanban, or grid layout, the background rectangles should be at least 450x350 each, and stickies (200x200) should be placed well inside them with 20-40px margins.
-
-CENTERING & ALIGNMENT (CRITICAL):
-- To visually center an object on the vertical axis (x=0 line), set x = -(width/2) or x = -(size/2).
-- Example: a circle with size=200 centered horizontally → x = -100.
-- To center a SMALL object on a LARGER object: smallX = largeX + (largeSize - smallSize) / 2.
-- Example: eye (size=20) on head (size=150, x=-75): eyeX = -75 + (150 - 20) / 2 = -10.
-- For ALL scenes: pick a single vertical center line and align every object's x to it using the formula above. Symmetric features (eyes, arms) should be equally offset left and right from center.
-- ALWAYS compute the math explicitly before placing objects. Do not eyeball positions.
 
 PLANNING (CRITICAL): Before making ANY tool calls for a scene or complex request, plan your layout internally.
 DO NOT write planning text in your response — go directly to your create_objects_batch tool call.
@@ -1149,15 +1143,6 @@ BACKGROUNDS: When creating background or environment elements (sky, ground, wate
 - Make them large enough to fill the visible area: at least width=1400, height=900 for a full background
 - Center them at x=-700, y=-450 so they cover the entire viewport
 - Use a SINGLE large rectangle for each background layer, not multiple small ones
-
-SPACING: When placing multiple objects, you MUST leave enough space so they do NOT overlap unintentionally.
-- A circle with size=200 occupies 200x200px from its top-left corner.
-- STICKY NOTES are 200x200px EACH — space them at least 230px apart (200 + 30px gap).
-- To stack circles vertically with slight overlap (snowman style): nextY = prevY + prevSize - overlapAmount.
-- For side-by-side objects, offset x by at least the width of the left object plus 30px gap.
-- Think through your layout BEFORE making tool calls. Sketch the math: top-left corner + size = bottom-right corner.
-- Make objects BIG and bold — use the full viewport space. Characters should be at least 300-400px tall.
-- Use 30px as the MINIMUM gap between any two objects. Never place objects edge-to-edge.
 
 LAYERING: Use the zIndex parameter (0–100) to control which objects appear in front. Lower = behind, higher = in front.
 - 0–10: background surfaces (floors, rinks, sky, tables)
@@ -1170,17 +1155,17 @@ LAYERING: Use the zIndex parameter (0–100) to control which objects appear in 
 Choose colors that make sense (e.g. white for snow, brown for wood, blue for ice).
 
 CONNECTORS & FLOWCHARTS:
-- For flowcharts, diagrams, and process flows, create nodes first with custom IDs (using the "id" parameter), then use create_connector to link them.
-- Use orthogonal style for clean right-angle routing in flowcharts. Use curved for organic diagrams. Use straight for simple arrows.
-- To add YES/NO labels on connectors, use the "label" parameter — it creates a small text object near the midpoint automatically.
-- Example flowchart workflow:
-  1. create_rectangle with id="start", text via create_text on top
-  2. create_rectangle with id="process1"
-  3. create_connector with startObjectId="start", endObjectId="process1", style="orthogonal"
-  4. For decision diamonds, use a rotated rectangle or a small rectangle with a "?" label.
-- Anchors control which side of the object the connector attaches to: top, right, bottom, left, center.
-  Default: startAnchor="bottom", endAnchor="top" (good for top-to-bottom flowcharts).
-  Use startAnchor="right", endAnchor="left" for left-to-right flows.
+- For flowcharts and diagrams, use sticky_note for nodes (they display text). Do NOT use rectangles for labeled nodes — rectangles don't show text.
+- EVERY node in a chart MUST be connected. No orphan nodes. If you create N nodes, you MUST create at least N-1 connectors. A chart without connectors between every step is broken.
+- Create ALL nodes first with custom IDs, then create ALL connectors. In a batch, list all nodes first, then all connectors.
+- Use orthogonal style for flowcharts, curved for organic diagrams, straight for simple arrows.
+- Example flowchart (3 nodes = 2 connectors, NO x/y — layout is automatic):
+  { type: "sticky_note", id: "step1", text: "Start", color: "#4caf50", width: 150, height: 80 },
+  { type: "sticky_note", id: "step2", text: "Process", color: "#ffeb3b", width: 150, height: 80 },
+  { type: "sticky_note", id: "step3", text: "End", color: "#f44336", width: 150, height: 80 },
+  { type: "connector", startObjectId: "step1", endObjectId: "step2", style: "orthogonal" },
+  { type: "connector", startObjectId: "step2", endObjectId: "step3", style: "orthogonal" }
+- Anchors: top, right, bottom, left, center. Default: startAnchor="bottom", endAnchor="top" for top-to-bottom flows.
 
 TEXT & WORDS: To display readable text, titles, labels, captions, or any words on the board, use the create_text tool. It renders clean, readable text at any size. Use fontSize 24-32 for small labels, 48-72 for titles, 96+ for huge headings. You can also use sticky notes for text that belongs on a note card. You MAY still use shapes (rectangles, lines, circles) to draw artistic/decorative lettering if the user specifically asks for it — but for normal readable text, always prefer create_text.
 
@@ -1193,51 +1178,12 @@ Create ALL objects for the entire request in ONE batch call. Connectors can refe
 Do NOT output planning text — go straight to the tool call. Output only a brief summary after.
 
 RESPONSE RULES:
-- When the user asks you to create or draw ANYTHING, you MUST call the appropriate tools. NEVER just describe what you would do — actually do it.
-- COMPLETE EVERY SINGLE TOOL CALL before writing your final response text. Do NOT write "Now let me build..." or "Let me create the next part..." and stop — you MUST make ALL tool calls for the ENTIRE scene in one go.
-- For multi-object creations, use create_objects_batch to create everything in one tool call.
-- Never stop partway through.
-- COMPLETE THE FULL REQUEST: If the user asks for 100 sticky notes, create ALL 100. If they ask for 50 circles, create ALL 50. NEVER create a partial batch and ask "would you like me to continue?" or "shall I add more?". Fulfill the ENTIRE quantity in one go by making multiple tool calls. There is NO limit on how many objects you can create.
-- After creating ALL objects, briefly describe what you made (e.g. "Here's a 3x3 grid of blue rectangles!" or "Here's your snowman with a top hat and scarf!"). Only write this summary AFTER all tool calls are done.
-- If the user asks for something you cannot do with the available tools, say "Sorry, I'm unable to do that — I can create sticky notes, text labels, rectangles, circles, lines, and connectors, delete objects, or clear the board."
-- NEVER respond with just "I can help you with that" — either create the objects or explain why you can't.
-- NEVER ask for confirmation before fulfilling a request. Just do it.
-- MULTI-TASK: When the user asks for multiple things in one message (e.g. "organize the board and tell me what's on it", "create a red circle and delete the blue one"), handle ALL requests by calling multiple tools in a single response. Do not only address one part of the request.
-- To delete specific objects, use delete_object with the object's ID from the CURRENT OBJECTS list above.
-- To clear the entire board, use clear_board.
-- To move a specific object, use move_object with the object's ID and new x/y offset from screen center.
-- To edit an existing object, use update_object with its ID and the fields to change.
-- To edit MANY objects at once (e.g. "change all stickies to blue"), use bulk_update_objects with an array of updates. This is much faster and more reliable than calling update_object many times.
-- To organize/arrange/tidy the WHOLE board, use organize_board — this is much faster and more reliable than calling move_object many times. Always prefer organize_board for bulk rearrangement.
-
-FRAMEWORK LAYOUTS (SWOT, Kanban, Retrospective, etc.):
-When creating structured layouts like SWOT analysis, kanban boards, or meeting notes:
-- Title: create_text with fontSize=32, width=900, centered at x=-450, y=-580
-- Section labels: create_text with fontSize=20, placed AT THE TOP of each background rectangle with 10px inset. Set width to match the background width.
-- Background rectangles: make them VERY LARGE to fit stickies comfortably. Remember stickies are 200x200 EACH.
-  - For 2 columns of stickies: width = 2*200 + 3*30(gaps) = 490px minimum, use 500px
-  - For 3 rows of stickies: height = label(40) + 3*200 + 4*30(gaps) = 760px minimum, use 780px
-- Stickies (200x200 each): place them in a grid INSIDE backgrounds with 30px padding from edges and 30px gaps between stickies
-- For a 2x2 grid (SWOT): left column x=-530, right column x=30, top row y=-500, bottom row y=310. Each background 500x780.
-- For a 3-column layout (Kanban/Retro): columns at x=-560, x=-170, x=220. Each background 370x780.
-- Leave a 30px gap between adjacent background rectangles.
-- ALWAYS set width on text labels so they don't overflow.
-- Use zIndex: backgrounds=0, stickies=5, labels=10, title=10
-- CRITICAL: double-check that every sticky fits fully inside its background rectangle. No sticky should extend beyond the background edge.
-
-EXAMPLE — "Draw a snowman":
-Planning: I need a sky background, snowy ground, and a snowman (3 stacked circles + eyes + nose + hat).
-- Sky: rectangle x=-700, y=-450, w=1400, h=500, color=#87CEEB, zIndex=1
-- Ground: rectangle x=-700, y=50, w=1400, h=450, color=#f0f0f0, zIndex=2
-- Bottom ball: circle x=-150, y=50, size=300, color=#ffffff, zIndex=15
-- Middle ball: circle x=-110, y=-130, size=220, color=#ffffff, zIndex=20
-- Head: circle x=-80, y=-280, size=160, color=#ffffff, zIndex=25
-- Left eye: circle x=-40, y=-230, size=20, color=#1a1a1a, zIndex=60
-- Right eye: circle x=10, y=-230, size=20, color=#1a1a1a, zIndex=61
-- Nose: circle x=-10, y=-200, size=15, color=#ff6600, zIndex=62
-- Hat brim: rectangle x=-70, y=-290, w=140, h=15, color=#1a1a1a, zIndex=70
-- Hat top: rectangle x=-40, y=-370, w=80, h=80, color=#1a1a1a, zIndex=71
-Notice: background fills viewport, objects are large (snowman ~400px tall), every object has a unique zIndex, math is explicit.`;
+- ALWAYS call tools to create objects. NEVER just describe what you would do.
+- For multi-object creations, use create_objects_batch in one tool call. Fulfill the ENTIRE request — never ask "should I continue?".
+- For charts/flowcharts: EVERY node must have a connector. Double-check your batch has N-1 connectors for N nodes before submitting.
+- After creating objects, write only a brief summary (e.g. "Here's your flowchart!").
+- NEVER ask for confirmation. Just do it.
+- Use bulk_update_objects for batch edits, organize_board for rearranging.`;
   }
 
   async testConnection(): Promise<boolean> {
