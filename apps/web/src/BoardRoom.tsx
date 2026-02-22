@@ -515,7 +515,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
         <div style={{ width: 1, height: 24, background: "rgba(0,0,0,0.1)" }} />
 
         <div style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6, opacity: effectiveReadOnly ? 0.5 : 1, pointerEvents: effectiveReadOnly ? "none" : "auto" }}>
-          {(["pan", "sticky", "rectangle", "circle", "line", "drawing"] as const).map((t, index) => [
+          {(["pan", "sticky", "text", "rectangle", "circle", "line", "drawing"] as const).map((t, index) => [
               <button
                 key={t}
                 data-testid={`tool-${t}`}
@@ -523,15 +523,17 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                 title={
                   t === "pan"
                     ? "Drag to pan • Shift+drag to select"
-                    : t === "rectangle"
-                      ? "Click to add rectangle"
-                      : t === "circle"
-                        ? "Click to add circle"
-                        : t === "line"
-                          ? "Click to add line"
-                          : t === "drawing"
-                            ? "Click and drag to draw"
-                            : "Click to add sticky note"
+                    : t === "text"
+                      ? "Click to add text"
+                      : t === "rectangle"
+                        ? "Click to add rectangle"
+                        : t === "circle"
+                          ? "Click to add circle"
+                          : t === "line"
+                            ? "Click to add line"
+                            : t === "drawing"
+                              ? "Click and drag to draw"
+                              : "Click to add sticky note"
                 }
                 style={{
                   padding: "6px 12px",
@@ -557,11 +559,11 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
                 }}
               >
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 16 }}>{t === "pan" ? "✋" : t === "sticky" ? "📝" : t === "rectangle" ? "◻" : t === "circle" ? "⭕" : t === "drawing" ? "✏️" : "⁄"}</span>
+                  <span style={{ fontSize: 16 }}>{t === "pan" ? "✋" : t === "sticky" ? "📝" : t === "text" ? "𝐓" : t === "rectangle" ? "◻" : t === "circle" ? "⭕" : t === "drawing" ? "✏️" : "⁄"}</span>
                   <span>{t === "drawing" ? "Draw" : t.charAt(0).toUpperCase() + t.slice(1)}</span>
                 </span>
               </button>,
-              index < 5 && <div key={`sep-${index}`} style={{ width: 1, height: 20, background: "rgba(0,0,0,0.06)" }} />
+              index < 6 && <div key={`sep-${index}`} style={{ width: 1, height: 20, background: "rgba(0,0,0,0.06)" }} />
           ].filter(Boolean))}
         </div>
 
@@ -842,7 +844,7 @@ export function BoardRoom({ readOnly = false }: BoardRoomProps) {
           </div>
         )}
 
-        {(tool === "rectangle" || tool === "circle" || tool === "line" || tool === "drawing") && selectedIds.length === 0 && (
+        {(tool === "text" || tool === "rectangle" || tool === "circle" || tool === "line" || tool === "drawing") && selectedIds.length === 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, background: "rgba(0,0,0,0.03)", padding: "4px 8px", borderRadius: 6 }}>
             <span style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>COLOR</span>
             {STICKY_COLORS.map((color) => (
