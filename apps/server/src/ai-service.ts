@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { Langfuse } from 'langfuse';
 import type { BoardObject } from '@collabboard/shared';
-import { expandSwot, expandKanban, expandFlowchart } from './template-expander';
+import { expandSwot, expandKanban, expandFlowchart } from './template-expander.js';
 import dotenv from 'dotenv';
 
 // Load environment variables
@@ -1071,7 +1071,7 @@ export class AIService {
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
       const response = await openai.chat.completions.create({
         model: 'gpt-4o',
-        max_tokens: 4096,
+        max_tokens: 1024,
         messages: conversationMessages,
         tools: openaiTools,
         tool_choice: 'auto',
@@ -1198,7 +1198,7 @@ export class AIService {
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
       const stream = await openai.chat.completions.create({
         model: 'gpt-4o',
-        max_tokens: 4096,
+        max_tokens: 1024,
         messages: conversationMessages,
         tools: openaiTools,
         tool_choice: 'auto',
