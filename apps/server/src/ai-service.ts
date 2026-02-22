@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { Langfuse } from 'langfuse';
 import type { BoardObject } from '@collabboard/shared';
-import { expandSwot, expandKanban, expandFlowchart } from './template-expander';
+import { expandSwot, expandKanban, expandFlowchart } from './template-expander.js';
 import dotenv from 'dotenv';
 
 // Load environment variables
