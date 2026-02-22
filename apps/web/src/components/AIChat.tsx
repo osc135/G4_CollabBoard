@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { computeElkLayout, detectLayoutType, autoSizeNode, type LayoutType } from './elkLayout';
 
 // Animated thinking indicator with object count
 function ThinkingIndicator({ objectCount }: { objectCount: number }) {
@@ -56,19 +57,15 @@ interface AIChatProps {
   onInitialPromptConsumed?: () => void;
 }
 
-// Client-side layout engine for flowcharts/diagrams.
-// Runs after all AI actions are processed. Only activates when connectors exist.
-// Uses Kahn's algorithm (topological sort) to assign layers, then positions nodes.
-function applyFlowchartLayout(
+// Apply ELK-based layout to newly created chart nodes and update connector anchors
+async function applyElkLayout(
   liveObjects: Map<string, any>,
   newIds: Set<string>,
   centerX: number,
   centerY: number,
   updateObject: (obj: any) => void,
+  layoutType: LayoutType | null,
 ) {
-  const HORIZONTAL_GAP = 40;
-  const VERTICAL_GAP = 60;
-
   // Separate new connectors and new nodes referenced by connectors
   const connectors: any[] = [];
   const connectedNodeIds = new Set<string>();
@@ -83,85 +80,84 @@ function applyFlowchartLayout(
     }
   }
 
-  // Only activate when connectors exist
+  // Only activate when connectors exist (structured chart needs ELK layout).
+  // Template SWOT/kanban have no connectors, so they keep their pre-computed positions.
   if (connectors.length === 0) return;
 
-  // Only reposition nodes that are both new AND referenced by connectors
+  // Collect nodes to layout: new nodes referenced by connectors
   const nodeIds = [...connectedNodeIds].filter(id => newIds.has(id) && liveObjects.has(id));
   if (nodeIds.length === 0) return;
 
-  // Build directed graph: parent → children, compute in-degrees
-  const children = new Map<string, string[]>();
-  const inDegree = new Map<string, number>();
-  for (const id of nodeIds) {
-    children.set(id, []);
-    inDegree.set(id, 0);
-  }
-  for (const c of connectors) {
-    if (children.has(c.startObjectId) && inDegree.has(c.endObjectId)) {
-      children.get(c.startObjectId)!.push(c.endObjectId);
-      inDegree.set(c.endObjectId, (inDegree.get(c.endObjectId) || 0) + 1);
-    }
-  }
+  console.log(`[elk-layout] Laying out ${nodeIds.length} nodes, ${connectors.length} edges, type=${layoutType || 'auto'}`);
 
-  // Kahn's algorithm: BFS from roots (in-degree 0) to assign layers
-  const layers: string[][] = [];
-  let queue = nodeIds.filter(id => (inDegree.get(id) || 0) === 0);
-  const visited = new Set<string>();
+  // Build layout input
+  const layoutNodes = nodeIds.map(id => {
+    const obj = liveObjects.get(id);
+    return {
+      id,
+      width: obj.width || 150,
+      height: obj.height || 80,
+      text: obj.text || '',
+      type: obj.type,
+      color: obj.color,
+    };
+  });
 
-  while (queue.length > 0) {
-    layers.push(queue);
-    for (const id of queue) visited.add(id);
-    const next: string[] = [];
-    for (const id of queue) {
-      for (const child of children.get(id) || []) {
-        inDegree.set(child, (inDegree.get(child) || 0) - 1);
-        if (inDegree.get(child) === 0 && !visited.has(child)) {
-          next.push(child);
-        }
-      }
-    }
-    queue = next;
+  const layoutEdges = connectors.map(c => ({
+    id: c.id,
+    startObjectId: c.startObjectId,
+    endObjectId: c.endObjectId,
+  }));
+
+  const result = await computeElkLayout(layoutNodes, layoutEdges, layoutType, centerX, centerY);
+
+  // Apply node positions
+  for (const [id, pos] of result.nodes) {
+    const obj = liveObjects.get(id);
+    if (!obj) continue;
+    const updated = { ...obj, x: pos.x, y: pos.y, width: pos.width, height: pos.height };
+    liveObjects.set(id, updated);
+    updateObject(updated);
   }
 
-  // Handle cycles: unvisited nodes go to last layer
-  const unvisited = nodeIds.filter(id => !visited.has(id));
-  if (unvisited.length > 0) layers.push(unvisited);
-
-  // Calculate total height for vertical centering
-  let totalHeight = 0;
-  const layerHeights: number[] = [];
-  for (const layer of layers) {
-    const maxH = Math.max(...layer.map(id => liveObjects.get(id)?.height || 80));
-    layerHeights.push(maxH);
-    totalHeight += maxH;
+  // Update connector anchors based on ELK routing
+  for (const [edgeId, anchors] of result.edges) {
+    const conn = liveObjects.get(edgeId);
+    if (!conn) continue;
+    const updated = { ...conn, startAnchor: anchors.startAnchor, endAnchor: anchors.endAnchor };
+    liveObjects.set(edgeId, updated);
   }
-  totalHeight += (layers.length - 1) * VERTICAL_GAP;
 
-  // Position each layer
-  let currentY = centerY - totalHeight / 2;
-  for (let i = 0; i < layers.length; i++) {
-    const layer = layers[i];
-    const layerH = layerHeights[i];
+  // Recompute connector endpoints after node repositioning
+  for (const conn of connectors) {
+    const startObj = liveObjects.get(conn.startObjectId);
+    const endObj = liveObjects.get(conn.endObjectId);
+    if (!startObj || !endObj) continue;
 
-    // Calculate total width for horizontal centering
-    let totalWidth = 0;
-    for (const id of layer) {
-      totalWidth += liveObjects.get(id)?.width || 150;
-    }
-    totalWidth += (layer.length - 1) * HORIZONTAL_GAP;
+    const updatedConn = liveObjects.get(conn.id) || conn;
+    const startAnchor = updatedConn.startAnchor || 'bottom';
+    const endAnchor = updatedConn.endAnchor || 'top';
 
-    let currentX = centerX - totalWidth / 2;
-    for (const id of layer) {
-      const obj = liveObjects.get(id);
-      if (!obj) continue;
-      const w = obj.width || 150;
-      const updated = { ...obj, x: currentX, y: currentY };
-      liveObjects.set(id, updated);
-      updateObject(updated);
-      currentX += w + HORIZONTAL_GAP;
-    }
-    currentY += layerH + VERTICAL_GAP;
+    const startPoint = getAnchorPointStatic(startObj, startAnchor);
+    const endPoint = getAnchorPointStatic(endObj, endAnchor);
+
+    const finalConn = { ...updatedConn, startPoint, endPoint };
+    liveObjects.set(conn.id, finalConn);
+  }
+}
+
+// Static version of getAnchorPoint for use outside the component
+function getAnchorPointStatic(obj: any, anchor: string): { x: number; y: number } {
+  const w = obj.width || 0;
+  const h = obj.height || 0;
+  const cx = obj.x + w / 2;
+  const cy = obj.y + h / 2;
+  switch (anchor) {
+    case 'top': return { x: cx, y: cy - h / 2 };
+    case 'bottom': return { x: cx, y: cy + h / 2 };
+    case 'left': return { x: cx - w / 2, y: cy };
+    case 'right': return { x: cx + w / 2, y: cy };
+    case 'center': default: return { x: cx, y: cy };
   }
 }
 
@@ -222,13 +218,28 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
     const offset = (val: number | undefined) => val ?? 0;
 
     if (action.tool === 'create_sticky_note' && callbacks.createObject) {
+      // If AI specifies a smaller size (e.g. 150x80 for flowchart nodes), respect it.
+      // Only enforce 200x200 minimum for stickies with no explicit size.
+      const aiWidth = args.width;
+      const aiHeight = args.height;
+      const isChartNode = aiWidth && aiWidth < 200 || aiHeight && aiHeight < 200;
+      let width: number, height: number;
+      if (isChartNode) {
+        // Auto-size based on text content for chart nodes
+        const autoSize = autoSizeNode(args.text || '', 140, 60, 300);
+        width = aiWidth || autoSize.width;
+        height = aiHeight || autoSize.height;
+      } else {
+        width = Math.max(aiWidth || 200, 200);
+        height = Math.max(aiHeight || 200, 200);
+      }
       const newObj = {
         id: args.id || `sticky-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         type: 'sticky' as const,
         x: centerX + offset(args.x),
         y: centerY + offset(args.y),
-        width: Math.max(args.width || 200, 200),
-        height: Math.max(args.height || 200, 200),
+        width,
+        height,
         rotation: 0,
         text: args.text || '',
         color: args.color || '#ffeb3b',
@@ -553,9 +564,10 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
         }
       }
 
-      // Apply flowchart layout engine after all objects are created
+      // Detect layout type from the user's command and apply ELK layout
+      const layoutType = detectLayoutType(command);
       if (callbacks?.updateObject) {
-        applyFlowchartLayout(liveObjects, newIds, centerX, centerY, callbacks.updateObject);
+        await applyElkLayout(liveObjects, newIds, centerX, centerY, callbacks.updateObject, layoutType);
       }
 
       // Now save deferred connectors — nodes have already been sent to Supabase,
