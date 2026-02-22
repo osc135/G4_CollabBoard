@@ -238,8 +238,8 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
       callbacks.createObject(newObj);
       return newObj.id;
     } else if (action.tool === 'create_rectangle' && callbacks.createObject) {
-      const rw = args.width || 120;
-      const rh = args.height || 80;
+      const rw = args.width || 160;
+      const rh = args.height || 120;
       // AI provides top-left coords; Board.tsx also stores rects as top-left
       const newObj = {
         id: args.id || `rect-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -256,7 +256,7 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
       callbacks.createObject(newObj);
       return newObj.id;
     } else if (action.tool === 'create_circle' && callbacks.createObject) {
-      const size = args.size || 80;
+      const size = args.size || 140;
       // AI provides top-left coords; Board.tsx renders circles with (x,y) as center
       const newObj = {
         id: args.id || `circle-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,

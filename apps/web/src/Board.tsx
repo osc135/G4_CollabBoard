@@ -1348,22 +1348,26 @@ const MemoConnector = React.memo<MemoConnectorProps>(({
         tension={cStyle === "curved" ? 0.5 : 0}
         bezier={cStyle === "curved"}
       />
-      {arrowEnd && (
-        <Line
+      {arrowEnd && (() => {
+        // Use the last segment of the actual path for arrow direction
+        const prevX = points.length >= 4 ? points[points.length - 4] : startPt.x;
+        const prevY = points.length >= 4 ? points[points.length - 3] : startPt.y;
+        const angle = Math.atan2(endPt.y - prevY, endPt.x - prevX);
+        return <Line
           points={[
-            endPt.x - 10 * Math.cos(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) - Math.PI / 6),
-            endPt.y - 10 * Math.sin(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) - Math.PI / 6),
+            endPt.x - 10 * Math.cos(angle - Math.PI / 6),
+            endPt.y - 10 * Math.sin(angle - Math.PI / 6),
             endPt.x,
             endPt.y,
-            endPt.x - 10 * Math.cos(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) + Math.PI / 6),
-            endPt.y - 10 * Math.sin(Math.atan2(endPt.y - startPt.y, endPt.x - startPt.x) + Math.PI / 6),
+            endPt.x - 10 * Math.cos(angle + Math.PI / 6),
+            endPt.y - 10 * Math.sin(angle + Math.PI / 6),
           ]}
           stroke={isSelected ? "#1e40af" : (connectorColor || "#333")}
           strokeWidth={isSelected ? 4 : (sw || 2)}
           lineCap="round"
           lineJoin="round"
-        />
-      )}
+        />;
+      })()}
     </Group>
   );
 });
@@ -1458,7 +1462,7 @@ export function Board({
     canvasY?: number;
   } | null>(null);
   const [clipboard, setClipboard] = useState<BoardObject | null>(null);
-  const [connectorStyle, setConnectorStyle] = useState<"straight" | "curved" | "orthogonal">("curved");
+  const [connectorStyle, setConnectorStyle] = useState<"straight" | "curved" | "orthogonal">("orthogonal");
   const [drawingLine, setDrawingLine] = useState<{
     id: string;
     startX: number;
@@ -2303,8 +2307,8 @@ export function Board({
           type: "rectangle",
           x: pos.x,
           y: pos.y,
-          width: 120,
-          height: 80,
+          width: 160,
+          height: 120,
           color: selectedShapeColor,
           rotation: 0,
         });
@@ -2314,8 +2318,8 @@ export function Board({
           type: "circle",
           x: pos.x,
           y: pos.y,
-          width: 80,
-          height: 80,
+          width: 140,
+          height: 140,
           color: selectedShapeColor,
           rotation: 0,
         });
