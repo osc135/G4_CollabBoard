@@ -1,6 +1,38 @@
 # CollabBoard
 
-Real-time collaborative whiteboard (G4). Monorepo: shared (Zod + state), server (Socket.io), web (React + Konva). Auth via Supabase.
+Real-time collaborative whiteboard application built for group collaboration. Create boards, invite teammates via room codes, and work together with sticky notes, shapes, drawings, connectors, frames, and an AI assistant.
+
+**Deployed:** [https://collabboard-n2fd.onrender.com]
+
+## Architecture Overview
+
+```
+G4_CollabBoard/
+├── packages/shared/       # Shared types & Zod schemas (BoardObject, Room, etc.)
+├── apps/web/              # React + Konva frontend (Vite)
+│   └── src/
+│       ├── Board.tsx          # Main canvas — all object rendering, selection, drawing
+│       ├── BoardRoom.tsx      # Room wrapper — connects Board to real-time sync
+│       ├── useSupabaseBoard.ts # Real-time hook — Supabase presence & broadcast
+│       └── components/
+│           ├── AIChat.tsx     # AI assistant panel — processes tool calls into objects
+│           └── elkLayout.ts   # ELK-based auto-layout for flowcharts/diagrams
+├── apps/server/           # Express API server
+│   └── src/
+│       ├── index.ts           # REST endpoints + NDJSON streaming for AI
+│       └── ai-service.ts     # Dual-model AI (GPT-4o simple, Claude Sonnet creative)
+└── render.yaml            # Render deployment config
+```
+
+**Tech stack:**
+- **Frontend:** React, Konva (HTML5 canvas), TypeScript, Vite
+- **Backend:** Express, Node.js, TypeScript
+- **Database & Auth:** Supabase (PostgreSQL, Auth, Realtime broadcast)
+- **AI:** Anthropic Claude Sonnet 4.6 (creative tasks), OpenAI GPT-4o (simple tasks)
+- **Deployment:** Render
+- **Observability:** Langfuse (AI tracing)
+
+**Real-time sync:** All collaboration (cursors, selections, drawing, object transforms, chat) uses Supabase Realtime broadcast channels — no Socket.io needed. Objects are persisted to Supabase PostgreSQL.
 
 ## Setup
 
