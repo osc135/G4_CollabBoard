@@ -599,7 +599,7 @@ function findObjectAtPoint(objects: BoardObject[], point: { x: number; y: number
 interface ObjectHandlers {
   onDragMove: (id: string, x: number, y: number, rotation?: number) => void;
   onDragEnd: (id: string, obj: BoardObject, x: number, y: number, rotation: number) => void;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, shiftKey?: boolean) => void;
   onContextMenu: (e: Konva.KonvaEventObject<PointerEvent>, id: string) => void;
   onTransform: (id: string, x: number, y: number, rotation: number, scaleX?: number, scaleY?: number, origW?: number, origH?: number) => void;
   onTransformEnd: (obj: BoardObject, scaleX: number, scaleY: number, rotation: number, nodeX: number, nodeY: number) => void;
@@ -681,7 +681,7 @@ const MemoStickyNote = React.memo<MemoStickyProps>(({
           if (point) onCursorMove(point.x, point.y);
         }
       }}
-      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id, e.evt.shiftKey); }}
       onContextMenu={(e) => onContextMenu(e, obj.id)}
       onDblClick={(e) => { e.cancelBubble = true; onDblClick(obj.id, obj.text); }}
       onPointerEnter={() => onHoverEnter(obj.id)}
@@ -918,7 +918,7 @@ const MemoRectangle = React.memo<MemoRectProps>(({
         node.scaleX(1);
         node.scaleY(1);
       }}
-      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id, e.evt.shiftKey); }}
       onContextMenu={(e) => onContextMenu(e, obj.id)}
     >
       <Rect
@@ -1011,7 +1011,7 @@ const MemoCircleObj = React.memo<MemoCircleProps>(({
         node.scaleX(1);
         node.scaleY(1);
       }}
-      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id, e.evt.shiftKey); }}
       onContextMenu={(e) => onContextMenu(e, obj.id)}
     >
       <Circle
@@ -1093,7 +1093,7 @@ const MemoLineObj = React.memo<MemoLineProps>(({
         const node = e.target;
         onTransform(obj.id, node.x(), node.y(), node.rotation(), node.scaleX(), node.scaleY(), obj.width || 0, obj.height || 0);
       }}
-      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id, e.evt.shiftKey); }}
       onContextMenu={(e) => onContextMenu(e, obj.id)}
     >
       <Line
@@ -1187,7 +1187,7 @@ const MemoTextbox = React.memo<MemoTextboxProps>(({
           if (point) onCursorMove(point.x, point.y);
         }
       }}
-      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id, e.evt.shiftKey); }}
       onDblClick={(e) => { e.cancelBubble = true; onDblClick(obj.id, obj.text); }}
       onContextMenu={(e) => onContextMenu(e, obj.id)}
       onTransform={(e) => {
@@ -1286,7 +1286,7 @@ const MemoDrawing = React.memo<MemoDrawingProps>(({
           if (point) onCursorMove(point.x, point.y);
         }
       }}
-      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id, e.evt.shiftKey); }}
       onContextMenu={(e) => onContextMenu(e, obj.id)}
     >
       <Line
@@ -1326,7 +1326,7 @@ interface MemoConnectorProps {
   arrowEnd: boolean;
   isSelected: boolean;
   shapeRefs: React.MutableRefObject<Record<string, Konva.Group>>;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, shiftKey?: boolean) => void;
   onContextMenu: (e: Konva.KonvaEventObject<PointerEvent>, id: string) => void;
   readOnly?: boolean;
 }
@@ -1348,7 +1348,7 @@ const MemoConnector = React.memo<MemoConnectorProps>(({
     <Group
       key={obj.id}
       ref={(el) => { if (el) shapeRefs.current[obj.id] = el; }}
-      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id, e.evt.shiftKey); }}
       onContextMenu={(e) => onContextMenu(e, obj.id)}
     >
       <Line
@@ -1464,7 +1464,7 @@ const MemoFrame = React.memo<MemoFrameProps>(({
         node.scaleX(1);
         node.scaleY(1);
       }}
-      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id); }}
+      onClick={(e) => { e.cancelBubble = true; onSelect(obj.id, e.evt.shiftKey); }}
       onContextMenu={(e) => onContextMenu(e, obj.id)}
     >
       {/* Frame background */}
@@ -1603,7 +1603,7 @@ export function Board({
     canvasX?: number;
     canvasY?: number;
   } | null>(null);
-  const [clipboard, setClipboard] = useState<BoardObject | null>(null);
+  const [clipboard, setClipboard] = useState<BoardObject[] | null>(null);
   const [connectorStyle, setConnectorStyle] = useState<"straight" | "curved" | "orthogonal">("orthogonal");
   const [drawingLine, setDrawingLine] = useState<{
     id: string;
@@ -1663,6 +1663,8 @@ export function Board({
   connectorStyleRef.current = connectorStyle;
   const toolRef = useRef(tool);
   toolRef.current = tool;
+  const clipboardRef = useRef(clipboard);
+  clipboardRef.current = clipboard;
 
   // ============= Object lookup Map for O(1) access =============
   const objectMap = useMemo(
@@ -1824,8 +1826,17 @@ export function Board({
     }
   }, []);
 
-  const stableOnSelect = useCallback((id: string) => {
-    onSelectRef.current([id]);
+  const stableOnSelect = useCallback((id: string, shiftKey?: boolean) => {
+    if (shiftKey) {
+      const current = selectedIdsRef.current;
+      if (current.includes(id)) {
+        onSelectRef.current(current.filter(sid => sid !== id));
+      } else {
+        onSelectRef.current([...current, id]);
+      }
+    } else {
+      onSelectRef.current([id]);
+    }
   }, []);
 
   const stableOnTransformEnd = useCallback((obj: BoardObject, scaleX: number, scaleY: number, rotation: number, nodeX: number, nodeY: number) => {
@@ -2131,6 +2142,52 @@ export function Board({
       return () => clearTimeout(t);
     }
   }, [editingTextboxId]);
+
+  // ============= Keyboard shortcuts: Ctrl+C, Ctrl+V, Ctrl+D =============
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept when typing in an input
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
+
+      const isMod = e.ctrlKey || e.metaKey;
+      if (!isMod) return;
+
+      if (e.key === 'c') {
+        const ids = selectedIdsRef.current;
+        if (ids.length === 0) return;
+        e.preventDefault();
+        const objs = ids.map(id => objectMapRef.current.get(id)).filter(Boolean) as BoardObject[];
+        if (objs.length > 0) setClipboard(objs);
+      } else if (e.key === 'v') {
+        const cb = clipboardRef.current;
+        if (!cb || cb.length === 0) return;
+        e.preventDefault();
+        const newIds: string[] = [];
+        for (const obj of cb) {
+          const newId = `${obj.type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          newIds.push(newId);
+          onObjectCreateRef.current({ ...obj, id: newId, x: (obj as any).x + 20, y: (obj as any).y + 20 } as BoardObject);
+        }
+        onSelectRef.current(newIds);
+      } else if (e.key === 'd') {
+        const ids = selectedIdsRef.current;
+        if (ids.length === 0) return;
+        e.preventDefault();
+        const newIds: string[] = [];
+        for (const id of ids) {
+          const obj = objectMapRef.current.get(id);
+          if (!obj) continue;
+          const newId = `${obj.type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          newIds.push(newId);
+          onObjectCreateRef.current({ ...obj, id: newId, x: (obj as any).x + 20, y: (obj as any).y + 20 } as BoardObject);
+        }
+        onSelectRef.current(newIds);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   useLayoutEffect(() => {
     const objIds = new Set(objects.map((o) => o.id));
@@ -3216,12 +3273,37 @@ export function Board({
               onClick={() => {
                 const obj = objectMap.get(contextMenu.objectId!);
                 if (obj) {
-                  setClipboard(obj);
+                  setClipboard([obj]);
                 }
                 setContextMenu(null);
               }}
             >
               Copy
+            </button>
+            <button
+              style={{
+                display: "block",
+                width: "100%",
+                padding: "8px 12px",
+                background: "white",
+                border: "none",
+                cursor: "pointer",
+                textAlign: "left",
+                fontSize: 14,
+                borderTop: "1px solid #eee",
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = "#f3f4f6"}
+              onMouseLeave={(e) => e.currentTarget.style.background = "white"}
+              onClick={() => {
+                const obj = objectMap.get(contextMenu.objectId!);
+                if (obj) {
+                  const newId = `${obj.type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                  onObjectCreateRef.current({ ...obj, id: newId, x: (obj as any).x + 20, y: (obj as any).y + 20 } as BoardObject);
+                }
+                setContextMenu(null);
+              }}
+            >
+              Duplicate
             </button>
             <button
               style={{
@@ -3264,10 +3346,12 @@ export function Board({
                 onMouseEnter={(e) => e.currentTarget.style.background = "#f3f4f6"}
                 onMouseLeave={(e) => e.currentTarget.style.background = "white"}
                 onClick={() => {
-                  const id = `${clipboard.type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                   const x = contextMenu.canvasX ?? 0;
                   const y = contextMenu.canvasY ?? 0;
-                  onObjectCreateRef.current({ ...clipboard, id, x, y } as BoardObject);
+                  for (const obj of clipboard) {
+                    const id = `${obj.type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                    onObjectCreateRef.current({ ...obj, id, x: x + ((obj as any).x - (clipboard[0] as any).x), y: y + ((obj as any).y - (clipboard[0] as any).y) } as BoardObject);
+                  }
                   setContextMenu(null);
                 }}
               >
