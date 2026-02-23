@@ -1653,6 +1653,8 @@ export function Board({
   penTypeRef.current = penType;
   const penStrokeWidthRef = useRef(penStrokeWidth);
   penStrokeWidthRef.current = penStrokeWidth;
+  const selectedShapeColorRef = useRef(selectedShapeColor);
+  selectedShapeColorRef.current = selectedShapeColor;
   const onDrawingPathRef = useRef(onDrawingPath);
   onDrawingPathRef.current = onDrawingPath;
   const onDrawingEndRef = useRef(onDrawingEnd);
@@ -2297,7 +2299,7 @@ export function Board({
         if (dx * dx + dy * dy >= 9) {
           const newPoints = [...dpts, pos.x, pos.y];
           setDrawingPath(prev => prev ? { ...prev, points: newPoints } : null);
-          onDrawingPathRef.current?.(newPoints, selectedShapeColor, penStrokeWidthRef.current, penTypeRef.current);
+          onDrawingPathRef.current?.(newPoints, selectedShapeColorRef.current, penStrokeWidthRef.current, penTypeRef.current);
         }
       } else if (drawingLineRef.current) {
         setDrawingLine((prev) => (prev ? { ...prev, currentX: pos.x, currentY: pos.y } : null));
