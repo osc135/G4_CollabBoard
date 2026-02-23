@@ -280,7 +280,7 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'create_frame',
-    description: 'Create a frame for grouping objects on the board. Frames are visual containers that help organize related items.',
+    description: 'Create a frame for grouping objects on the board. Frames are visual containers that help organize related items. Place the frame FIRST (with zIndex -1), then position child objects INSIDE the frame area (offset their x/y so they fall within the frame bounds, leaving ~40px top padding for the title bar and ~20px side padding).',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -1451,6 +1451,13 @@ BACKGROUNDS: When creating background or environment elements (sky, ground, wate
 - Make them large enough to fill the visible area: at least width=1400, height=900 for a full background
 - Center them at x=-700, y=-450 so they cover the entire viewport
 - Use a SINGLE large rectangle for each background layer, not multiple small ones
+
+FRAMES: When creating a frame with objects inside it:
+- Create the frame FIRST with zIndex=-1 so it stays behind its contents.
+- Position child objects INSIDE the frame area. The frame's x/y is its top-left corner.
+- Leave ~40px top padding for the title bar and ~20px side/bottom padding.
+- Example: frame at x=-350, y=-250, width=700, height=500 → place first sticky at x=-330, y=-200, second sticky at x=-110, y=-200.
+- Size the frame large enough to contain all child objects with padding.
 
 LAYERING: Use the zIndex parameter (0–100) to control which objects appear in front. Lower = behind, higher = in front.
 - 0–10: background surfaces (floors, rinks, sky, tables)
