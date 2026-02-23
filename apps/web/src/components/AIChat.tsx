@@ -314,6 +314,22 @@ export function AIChatContent({ callbacks, stageRef, objects = [], initialPrompt
       liveObjects.set(newObj.id, newObj);
       callbacks.createObject(newObj);
       return newObj.id;
+    } else if (action.tool === 'create_frame' && callbacks.createObject) {
+      const newObj = {
+        id: args.id || `frame-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'frame' as const,
+        x: centerX + offset(args.x),
+        y: centerY + offset(args.y),
+        width: args.width || 700,
+        height: args.height || 500,
+        title: args.title || 'Frame',
+        color: args.color || '#6366f1',
+        rotation: 0,
+        zIndex: args.zIndex ?? -1,
+      };
+      liveObjects.set(newObj.id, newObj);
+      callbacks.createObject(newObj);
+      return newObj.id;
     } else if (action.tool === 'create_connector' && callbacks.createObject) {
       // Resolve start point
       let startPoint = { x: centerX + offset(args.startX), y: centerY + offset(args.startY) };

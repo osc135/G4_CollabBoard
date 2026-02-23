@@ -19,7 +19,7 @@ const BOARD_KEYWORDS = [
   // objects
   'sticky', 'note', 'notes', 'rectangle', 'rect', 'circle', 'line', 'shape',
   'square', 'box', 'oval', 'arrow', 'star', 'triangle', 'connector', 'connect', 'flow',
-  'text', 'label', 'card',
+  'text', 'label', 'card', 'frame',
   // board concepts
   'board', 'canvas', 'whiteboard', 'workspace',
   'objects', 'items', 'elements',
@@ -279,6 +279,24 @@ const tools: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'create_frame',
+    description: 'Create a frame for grouping objects on the board. Frames are visual containers that help organize related items.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'Optional custom ID for this frame.' },
+        title: { type: 'string', description: 'Title displayed at the top of the frame (default "Frame")' },
+        color: { type: 'string', description: 'Frame border/header color (hex code, default "#6366f1")' },
+        x: { type: 'number', description: 'Horizontal offset from screen center (px). 0 = center.' },
+        y: { type: 'number', description: 'Vertical offset from screen center (px). 0 = center.' },
+        width: { type: 'number', description: 'Width in px (default 700)' },
+        height: { type: 'number', description: 'Height in px (default 500)' },
+        zIndex: { type: 'number', description: 'Z-order index. Frames typically use -1 to stay behind other objects.' },
+      },
+      required: [],
+    },
+  },
+  {
     name: 'create_objects_batch',
     description: 'Create multiple objects in a single call. Use for scenes, drawings, or any multi-object request that is NOT a SWOT analysis, kanban board, or flowchart (use their dedicated tools instead). Each object has a "type" field plus the same properties as the corresponding individual create tool.',
     input_schema: {
@@ -290,7 +308,7 @@ const tools: Anthropic.Tool[] = [
           items: {
             type: 'object',
             properties: {
-              type: { type: 'string', enum: ['sticky_note', 'rectangle', 'circle', 'line', 'text', 'connector'] },
+              type: { type: 'string', enum: ['sticky_note', 'rectangle', 'circle', 'line', 'text', 'connector', 'frame'] },
               id: { type: 'string' },
               text: { type: 'string' },
               color: { type: 'string' },
@@ -313,6 +331,7 @@ const tools: Anthropic.Tool[] = [
               strokeWidth: { type: 'number' },
               arrowEnd: { type: 'boolean' },
               label: { type: 'string' },
+              title: { type: 'string' },
             },
             required: ['type'],
           },
@@ -769,7 +788,7 @@ export class AIService {
           messages: conversationMessages,
           tools,
           tool_choice: { type: 'auto' },
-          temperature: 0.7,
+          temperature: 0,
         });
 
         if (iteration === 0) {
@@ -957,7 +976,7 @@ export class AIService {
         messages: conversationMessages,
         tools,
         tool_choice: { type: 'auto' },
-        temperature: 0.7,
+        temperature: 0,
       });
 
       if (firstIteration) {
@@ -1075,7 +1094,7 @@ export class AIService {
         messages: conversationMessages,
         tools: openaiTools,
         tool_choice: 'auto',
-        temperature: 0.7,
+        temperature: 0,
       });
 
       const choice = response.choices[0];
@@ -1202,7 +1221,7 @@ export class AIService {
         messages: conversationMessages,
         tools: openaiTools,
         tool_choice: 'auto',
-        temperature: 0.7,
+        temperature: 0,
         stream: true,
       });
 
@@ -1384,7 +1403,7 @@ export class AIService {
     return `You are a whiteboard-only AI assistant for a collaborative board app. Your SOLE purpose is to help users create, organize, and manage objects on their whiteboard.
 
 STRICT SCOPE — You must ONLY respond to requests related to the whiteboard:
-- Creating objects (sticky notes, text labels, rectangles, circles, lines, connectors)
+- Creating objects (sticky notes, text labels, rectangles, circles, lines, connectors, frames)
 - Editing existing objects (changing color, text, size, layering)
 - Organizing, arranging, or laying out board objects
 - Analyzing or describing what's currently on the board
